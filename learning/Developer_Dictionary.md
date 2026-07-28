@@ -34,3 +34,4 @@ A MAVEN = someone who has deep knowledge in a subject and enjoys sharing it with
 Maven = ChatGPT's Name
 Untracked = a file Git knows existis but isnt saved yet                   git add . 
 git add .  = save these files/all files not saved yet
+Program flow = the order your program runs in
