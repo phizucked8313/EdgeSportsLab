@@ -62,25 +62,7 @@ while running:
     #=====================================================
 
     if user_choice == "1":
-        run_nfl_menu()
-        
-
-        print()
-    
-        if nfl_choice == "1":   
-            print("Loading NFL Player Stats")
-
-        elif nfl_choice == "2":     
-            print("Loading NFL Team Stats")
-
-        elif nfl_choice == "3":
-            print("Loading NFL Game Stats")
-
-        elif nfl_choice == "4":
-            continue   
- 
-        else:
-            print("That is not a valid NFL option.")
+        run_nfl_menu()             
 
     elif user_choice == "2":
         print("NBA analysis is coming soon.")

@@ -78,3 +78,12 @@ Every indented line belongs to the statement above it.
 
 Today I also learned that programs stop and wait when they reach an input() statement.
 
+
+**************how to save in github****************
+The Commands You'll Use Most
+git status
+git add .
+git commit -m "Your message here" whatever you are naming todays files or status as
+git push
+
+You'll type these hundreds of times.

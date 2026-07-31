@@ -411,3 +411,130 @@ injuries.py → Gets injuries ✅
 edgeiq.py → Runs the analytics engine ✅
 
 When each file has one responsibility, the project stays clean and scalable.
+
+
+
+keyboard shortcut
+
+Learn these until they're automatic:
+Ctrl + P  = lets you jump to any file instantly 
+Ctrl + Shift + P =  opens the command palette
+Ctrl + ` = opens and closes the terminal
+Ctrl + /  =  comments out code
+Ctrl + D  = see below lines 440 - 474
+F2  =  rename symbol see below 478 -508 
+F5  = run the debugger see below lines 511 - 536 
+
+Ctrl + /  = Comments out code.
+Suppose you have
+print("Hello")
+print("World")
+Highlight both lines.
+Press
+Ctrl + /
+Now it becomes
+# print("Hello")
+# print("World")
+
+
+Ctrl + D ⭐⭐⭐⭐☆
+
+This one is magic.
+
+Suppose you have
+
+running = True
+
+Highlight
+
+running
+
+Press
+
+Ctrl + D
+
+Now every press selects the next occurrence.
+
+You can rename many variables at once.
+
+For example:
+
+running
+running
+running
+running
+
+becomes
+
+is_running
+is_running
+is_running
+is_running
+
+with one edit.
+
+
+
+Rename Symbol
+
+Suppose you decide
+
+show_menu()
+
+should really be
+
+display_menu()
+
+Instead of manually changing it everywhere...
+
+Put your cursor on
+
+show_menu
+
+Press
+
+F2
+
+Type
+
+display_menu
+
+Press Enter.
+
+VS Code changes every use of that function across your project.
+
+This is much safer than Find/Replace.
+
+Professional developers use this constantly.
+
+
+Run the debugger.
+
+Eventually you'll have
+
+500
+1000
+5000
+
+lines of code.
+
+Something won't work.
+
+Instead of guessing...
+
+You press
+
+F5
+
+Now you can:
+
+Pause execution
+Watch variables change
+Step through one line at a time
+See exactly where the bug occurs
+
+This is like having X-ray vision into your program
+
+
+
+
