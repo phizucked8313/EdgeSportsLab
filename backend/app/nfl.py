@@ -8,7 +8,7 @@
 # IMPORTS
 # =====================================================
 
-from menus import show_nfl_menu
+from backend.app.menus import show_nfl_menu
 
 
 # =====================================================

@@ -9,9 +9,10 @@
 # IMPORTS
 # =====================================================
 
-from menus import show_title, show_main_menu
-from messages import greet_user
-from nfl import run_nfl_menu
+from backend.app.menus import show_title, show_main_menu
+from backend.app.messages import greet_user
+from backend.app.nfl import run_nfl_menu
+from backend.database.database import connect_database
 
 
 
@@ -45,6 +46,9 @@ running = True
 user_name = input("What is your name? ")
 
 greet_user(user_name)
+
+connect_database()
+
 
 while running:
     show_title()

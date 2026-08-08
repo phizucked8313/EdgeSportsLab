@@ -537,4 +537,50 @@ This is like having X-ray vision into your program
 
 
 
+*****************************************************
+Your brain should literally read it like this:
+
+"Cursor... go execute this command for me."
+
+If that command is:
+
+SELECT
+
+then you're saying:
+
+Cursor...
+
+Go find something.
+
+If it's:
+
+INSERT
+
+you're saying:
+
+Cursor...
+
+Go add something.
+
+If it's:
+
+UPDATE
+
+you're saying:
+
+Cursor...
+
+Go change something.
+
+If it's:
+
+DELETE
+
+you're saying:
+
+Cursor...
+
+Go remove something.
+
+
 
