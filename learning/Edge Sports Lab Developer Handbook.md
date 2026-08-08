@@ -584,3 +584,7 @@ Go remove something.
 
 
 
+main.py = tells everyone what to do ✔️
+list_all_teams() = gets the data ✔️
+return teams = hands the data back ✔️
+show_all_teams() = displays it ✔️

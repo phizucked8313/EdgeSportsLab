@@ -1,0 +1,29 @@
+# ========================================
+# EDGE SPORTS LAB - GITIGNORE
+# ========================================
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# VS Code settings (optional)
+.vscode/settings.json
+
+# SQLite temporary files
+*.db-journal
+*.db-wal
+*.db-shm
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Log files
+*.log
