@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from fantasy_draft_model.data_loader import load_weekly_player_stats
+from fantasy_draft_model.integrations.data_loader import load_weekly_player_stats
 
 
 # ============================================================

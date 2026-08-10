@@ -1,0 +1,71 @@
+{
+    "version": "0.3.0",
+
+    "projected_games": 17,
+
+    "league_settings": {
+        "teams": 12,
+        "scoring": "PPR",
+        "starting_lineup": {
+            "QB": 1,
+            "RB": 2,
+            "WR": 2,
+            "TE": 1,
+            "FLEX": 1,
+            "K": 1,
+            "DEF": 1
+        }
+    },
+
+    "projection_weights": {
+
+        "production": 0.30,
+        "opportunity": 0.20,
+        "talent": 0.15,
+        "situation": 0.15,
+        "durability": 0.10,
+        "injury": 0.05,
+        "risk": 0.05
+    },
+
+    "injury_penalties": {
+
+        "soft_tissue": 18,
+        "hamstring": 15,
+        "groin": 15,
+        "calf": 12,
+        "acl": 25,
+        "achilles": 30,
+        "mcl": 15,
+        "high_ankle": 12,
+        "turf_toe": 10,
+        "shoulder": 8,
+        "collarbone": 15,
+        "concussion": 12
+    },
+
+    "risk_thresholds": {
+
+        "very_low": 10,
+        "low": 25,
+        "moderate": 45,
+        "high": 65,
+        "very_high": 85
+    },
+
+    "confidence_weights": {
+
+        "games_played": 0.30,
+        "injury": 0.25,
+        "consistency": 0.20,
+        "projection_stability": 0.25
+    },
+
+    "vorp_replacement": {
+
+        "QB": 12,
+        "RB": 24,
+        "WR": 24,
+        "TE": 12
+    }
+}
