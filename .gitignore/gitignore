@@ -1,0 +1,56 @@
+# ==========================================
+# EdgeSportsLab Git Ignore
+# ==========================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Distribution
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# SQLite Databases
+*.db
+*.sqlite3
+
+# Environment Variables
+.env
+
+# VS Code
+.vscode/settings.json
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Temporary Files
+*.tmp
+*.bak
+
+# Output Files
+fantasy_draft_model/output/*.csv
+fantasy_draft_model/output/*.xlsx
+fantasy_draft_model/output/*.pdf
