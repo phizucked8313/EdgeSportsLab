@@ -1,0 +1,43 @@
+{
+  "season": 2026,
+  "teams": 12,
+  "scoring": {
+    "reception": 1.0,
+    "rushing_yard": 0.1,
+    "receiving_yard": 0.1,
+    "passing_yard": 0.04,
+    "rushing_td": 6,
+    "receiving_td": 6,
+    "passing_td": 4,
+    "bonus_300_passing": 3,
+    "bonus_100_rushing": 3,
+    "bonus_100_receiving": 3
+  },
+  "lineup": {
+    "QB": 1,
+    "RB": 2,
+    "WR": 2,
+    "TE": 1,
+    "FLEX": 2,
+    "K": 1,
+    "DEF": 1
+  },
+  "replacement_levels": {
+    "QB": 12,
+    "RB": 24,
+    "WR": 24,
+    "TE": 12
+  },
+  "yahoo_leagues": {
+    "drunk_sundays": {
+      "league_name": "Drunk Sundays",
+      "league_id": "390151",
+      "keeper_league": true
+    },
+    "somewhat_related": {
+      "league_name": "Somewhat Related League",
+      "league_id": "950841",
+      "keeper_league": true
+    }
+  }
+}
