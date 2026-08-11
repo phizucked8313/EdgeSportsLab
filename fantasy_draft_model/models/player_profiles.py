@@ -28,16 +28,16 @@ def build_player_profiles():
     # ADD INJURY / DURABILITY SCORES
     # -----------------------------------------
 
-    df = add_injury_scores(
-        df
-    )
+    #df = add_injury_scores(
+    #   df
+    #)
 
-    df["injury_risk_label"] = (
-        df["injury_risk_score"]
-        .apply(
-            injury_risk_label
-        )
-    )
+    #df["injury_risk_label"] = (
+    #    df["injury_risk_score"]
+    #    .apply(
+    #        injury_risk_label
+    #    )
+    #)
 
     return df
 

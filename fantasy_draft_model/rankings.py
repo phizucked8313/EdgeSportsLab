@@ -1,0 +1,401 @@
+"""
+EdgeIQ Draft Rankings Engine
+Version 1
+"""
+
+import pandas as pd
+
+from fantasy_draft_model.engines.projection_engine import (
+    build_2026_projections,
+)
+from fantasy_draft_model.models.football_intelligence import (
+    add_football_intelligence,
+)
+
+
+
+# ============================================================
+# DRAFT SCORE
+# ============================================================
+
+def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Create one overall draft score.
+
+    Combines:
+    - VORP
+    - EdgeScore
+    - Projection
+    - Confidence
+    - Tier scarcity
+
+    This is Version 1 and will be tuned later.
+    """
+
+    df = df.copy()
+
+    # -----------------------------------------
+    # NORMALIZE VORP TO 0-100
+    # -----------------------------------------
+
+    vorp_min = df["vorp"].min()
+    vorp_max = df["vorp"].max()
+
+    if vorp_max != vorp_min:
+
+        df["vorp_score"] = (
+            (
+                df["vorp"] - vorp_min
+            )
+            /
+            (
+                vorp_max - vorp_min
+            )
+            * 100
+        )
+
+    else:
+
+        df["vorp_score"] = 50.0
+
+
+    # -----------------------------------------
+    # NORMALIZE PROJECTION TO 0-100
+    # -----------------------------------------
+
+    projection_min = (
+        df["projected_points"].min()
+    )
+
+    projection_max = (
+        df["projected_points"].max()
+    )
+
+    if projection_max != projection_min:
+
+        df["projection_score"] = (
+            (
+                df["projected_points"]
+                - projection_min
+            )
+            /
+            (
+                projection_max
+                - projection_min
+            )
+            * 100
+        )
+
+    else:
+
+        df["projection_score"] = 50.0
+
+
+    # -----------------------------------------
+    # TIER SCARCITY BONUS
+    # -----------------------------------------
+
+    df["tier_scarcity_score"] = 0.0
+
+
+    df.loc[
+        df["tier_status"]
+        == "LAST PLAYER IN TIER",
+        "tier_scarcity_score"
+    ] = 100
+
+
+    df.loc[
+        df["tier_status"]
+        == "TIER ALMOST GONE",
+        "tier_scarcity_score"
+    ] = 80
+
+
+    df.loc[
+        df["tier_status"]
+        == "LIMITED TIER",
+        "tier_scarcity_score"
+    ] = 60
+
+
+    df.loc[
+        df["tier_status"]
+        == "DEPTH AVAILABLE",
+        "tier_scarcity_score"
+    ] = 35
+
+
+    # -----------------------------------------
+    # DRAFT SCORE
+    # -----------------------------------------
+
+    df["draft_score"] = (
+
+        df["vorp_score"] * 0.35
+
+        +
+
+        df["edgescore"] * 0.25
+
+        +
+
+        df["projection_score"] * 0.20
+
+        +
+
+        df["projection_confidence"] * 0.10
+
+        +
+
+        df["tier_scarcity_score"] * 0.10
+    )
+
+
+    df["draft_score"] = (
+        df["draft_score"]
+        .clip(
+            lower=0,
+            upper=100,
+        )
+        .round(2)
+    )
+
+
+    return df
+
+
+# ============================================================
+# OVERALL RANKINGS
+# ============================================================
+
+def create_overall_rankings(
+    df: pd.DataFrame
+) -> pd.DataFrame:
+
+    df = df.copy()
+
+
+    df = (
+        df.sort_values(
+            by=[
+                "draft_score",
+                "vorp",
+                "projected_points",
+            ],
+            ascending=False,
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+
+    df["draft_rank"] = (
+        df.index + 1
+    )
+
+
+    return df
+
+
+# ============================================================
+# POSITION RANK LABEL
+# ============================================================
+
+def add_position_rank_label(
+    df: pd.DataFrame
+) -> pd.DataFrame:
+
+    df = df.copy()
+
+
+    df[
+        "position_rank_label"
+    ] = (
+
+        df["position"].astype(str)
+
+        +
+
+        df["position_rank"]
+        .astype(int)
+        .astype(str)
+    )
+
+
+    return df
+
+
+# ============================================================
+# DRAFT VALUE LABEL
+# ============================================================
+
+def add_draft_value_label(
+    df: pd.DataFrame
+) -> pd.DataFrame:
+
+    df = df.copy()
+
+
+    def value_label(row):
+
+        if (
+            row["edgescore"] >= 90
+            and row["vorp"] > 0
+        ):
+
+            return "ELITE TARGET"
+
+
+        if row["draft_score"] >= 80:
+
+            return "STRONG TARGET"
+
+
+        if row["draft_score"] >= 65:
+
+            return "GOOD VALUE"
+
+
+        if row["draft_score"] >= 50:
+
+            return "DEPTH VALUE"
+
+
+        return "LATE / WATCH"
+
+
+    df[
+        "draft_value"
+    ] = df.apply(
+        value_label,
+        axis=1,
+    )
+
+
+    return df
+
+
+# ============================================================
+# BUILD COMPLETE DRAFT BOARD
+# ============================================================
+
+def build_draft_rankings():
+
+    print(
+        "\nBuilding EdgeIQ Draft Rankings..."
+    )
+
+
+    df = build_2026_projections()
+
+
+    df = calculate_draft_score(
+        df
+    )
+
+
+    df = create_overall_rankings(
+        df
+    )
+
+
+    df = add_position_rank_label(
+        df
+    )
+
+
+    df = add_draft_value_label(
+        df
+    )
+
+    df = add_football_intelligence(
+        df
+)
+
+    
+    return df
+
+
+# ============================================================
+# DISPLAY
+# ============================================================
+
+def main():
+
+    df = build_draft_rankings()
+
+
+    columns = [
+
+        "draft_rank",
+
+        "player_name_clean",
+
+        "position_rank_label",
+
+        "team",
+
+        "tier",
+
+        "draft_score",
+
+        "edgescore",
+
+        "vorp",
+
+        "projected_points",
+
+        "floor_projection",
+
+        "ceiling_projection",
+
+        "projection_confidence",
+
+        "injury_risk_score",
+
+        "tier_status",
+
+        "draft_value",
+    ]
+
+
+    print(
+        "\n============================================"
+    )
+
+    print(
+        "EDGEIQ TOP 100 DRAFT RANKINGS"
+    )
+
+    print(
+        "============================================\n"
+    )
+
+
+    print(
+
+        df[
+            columns
+        ]
+
+        .head(100)
+
+        .round(2)
+
+        .to_string(
+            index=False
+        )
+    )
+
+
+    print(
+        f"\nTotal Ranked Players: "
+        f"{len(df):,}"
+    )
+
+
+if __name__ == "__main__":
+
+    main()

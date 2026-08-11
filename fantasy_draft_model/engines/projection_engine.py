@@ -1,7 +1,22 @@
 import numpy as np
 import pandas as pd
 
+from fantasy_draft_model.engines.injury_risk import add_injury_scores
 from fantasy_draft_model.models.player_profiles import build_player_profiles
+from fantasy_draft_model.engines.edgescore_engine import calculate_edgescore
+from fantasy_draft_model.engines.vorp_engine import calculate_vorp
+from fantasy_draft_model.engines.rushing_usage_engine import (
+    add_rushing_usage_scores,
+    add_qb_contact_exposure,
+)
+from fantasy_draft_model.engines.injury_risk import (
+    add_injury_scores,
+    injury_risk_label,
+)
+from fantasy_draft_model.engines.tier_engine import calculate_tiers
+
+
+
 
 
 # ============================================================
@@ -684,6 +699,24 @@ def build_2026_projections():
         df
     )
 
+    df = add_rushing_usage_scores(
+        df  
+    )
+
+    df = add_qb_contact_exposure(
+        df
+    )
+
+    df = add_injury_scores(
+        df  
+    )    
+
+    df["injury_risk_label"] = (
+        df["injury_risk_score"]
+        .apply(
+            injury_risk_label
+        )    
+    )
 
     df = calculate_opportunity_score(
         df
@@ -713,6 +746,16 @@ def build_2026_projections():
     df = calculate_projection_confidence(
         df
     )
+
+
+    df = calculate_edgescore(
+        df
+    )
+
+
+    df = calculate_vorp(df) 
+
+    df = calculate_tiers(df)
 
 
     df = (
@@ -755,8 +798,21 @@ def main():
 
     columns = [
 
+    
+        "overall_rank",
+
         "player_name_clean",
+
         "position",
+
+        "position_rank",
+
+        "tier",
+
+        "tier_size",
+
+        "tier_status",
+
         "team",
 
         "games_played",
@@ -765,7 +821,12 @@ def main():
 
         "opportunity_score",
 
+        "edgescore",
+
+        "vorp",
+
         "durability_score",
+
         "injury_risk_score",
 
         "baseline_projection",
@@ -777,7 +838,16 @@ def main():
         "ceiling_projection",
 
         "projection_confidence",
-    ]
+
+        "rushing_usage_score",
+
+        "qb_contact_exposure",
+
+
+]
+
+        
+
 
 
     print(

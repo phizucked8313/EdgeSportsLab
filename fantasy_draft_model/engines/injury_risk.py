@@ -368,13 +368,14 @@ def add_injury_scores(df):
     """
     Add EdgeIQ injury metrics to
     the master player DataFrame.
+
+    QB rushing/contact exposure is used
+    as a small added risk modifier.
     """
 
     df = df.copy()
 
-
     profiles = []
-
 
     for _, row in df.iterrows():
 
@@ -382,30 +383,95 @@ def add_injury_scores(df):
             "player_name_clean"
         ]
 
-
         position = row[
             "position"
         ]
 
-
-        profile = (
-            calculate_injury_profile(
-                player_name,
-                position
-            )
+        profile = calculate_injury_profile(
+            player_name,
+            position
         )
 
+        # -----------------------------------------
+        # QB CONTACT EXPOSURE
+        # -----------------------------------------
+
+        if (
+            position == "QB"
+            and "qb_contact_exposure" in df.columns
+        ):
+
+            contact_exposure = row.get(
+                "qb_contact_exposure",
+                0
+            )
+
+            # Maximum added QB rushing/contact
+            # penalty = 12 injury-risk points.
+            contact_penalty = (
+                contact_exposure
+                / 100
+            ) * 12
+
+            profile[
+                "qb_contact_exposure"
+            ] = round(
+                contact_exposure,
+                1
+            )
+
+            profile[
+                "qb_contact_injury_penalty"
+            ] = round(
+                contact_penalty,
+                1
+            )
+
+            adjusted_risk = (
+                profile[
+                    "injury_risk_score"
+                ]
+                + contact_penalty
+            )
+
+            adjusted_risk = min(
+                adjusted_risk,
+                100
+            )
+
+            profile[
+                "injury_risk_score"
+            ] = round(
+                adjusted_risk,
+                1
+            )
+
+            profile[
+                "durability_score"
+            ] = round(
+                100
+                - adjusted_risk,
+                1
+            )
+
+        else:
+
+            profile[
+                "qb_contact_exposure"
+            ] = 0.0
+
+            profile[
+                "qb_contact_injury_penalty"
+            ] = 0.0
 
         profiles.append(
             profile
         )
 
-
     injury_df = pd.DataFrame(
         profiles,
         index=df.index
     )
-
 
     df = pd.concat(
         [
@@ -415,8 +481,9 @@ def add_injury_scores(df):
         axis=1
     )
 
-
     return df
+
+
 
 
 # ============================================================
