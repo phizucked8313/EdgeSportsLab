@@ -35,6 +35,9 @@ def build_team_rosters(
 ):
     """
     Convert draft history into fantasy team rosters.
+
+    Uses the drafted_by field stored in draft_state.json
+    as the fantasy team name.
     """
 
     state = load_draft_state()
@@ -53,7 +56,7 @@ def build_team_rosters(
             ""
         )
 
-        drafted_by = pick.get(
+        fantasy_team = pick.get(
             "drafted_by",
             "Unknown"
         )
@@ -79,7 +82,7 @@ def build_team_rosters(
         roster_rows.append(
             {
                 "fantasy_team":
-                    drafted_by,
+                    fantasy_team,
 
                 "player_name":
                     player_name,
@@ -96,8 +99,18 @@ def build_team_rosters(
         )
 
     return pd.DataFrame(
-        roster_rows
+        roster_rows,
+        columns=[
+            "fantasy_team",
+            "player_name",
+            "position",
+            "nfl_team",
+            "pick_number",
+        ]
     )
+
+
+  
 
 
 # ============================================================

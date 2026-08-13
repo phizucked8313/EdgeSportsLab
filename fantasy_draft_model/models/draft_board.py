@@ -41,10 +41,23 @@ from fantasy_draft_model.draft_state import (
     load_draft_state,
 
 )
+from fantasy_draft_model.engines.draft_brain_engine import (
+    add_draft_brain,
+)
 
+from fantasy_draft_model.engines.draft_order_engine import (
+    get_managers_before_user,
+)
 
+from fantasy_draft_model.engines.manager_need_threat_engine import (
+    calculate_manager_need_threat,
+    get_position_threat,
+)
 
-
+from fantasy_draft_model.models.league_manager import (
+    get_user_draft_slot,
+    get_league,
+)
 
 
 def get_best_available(
@@ -108,11 +121,21 @@ def get_best_available(
 
 def display_draft_board(limit=20):
 
+    league_name = "Drunk Sundays"
+
+    league = get_league(
+        league_name
+    )
+
+    user_slot = get_user_draft_slot(
+        league_name
+    )
+
     df = build_draft_rankings()
 
     df = recalculate_after_keepers(
         df,
-        "Drunk Sundays"
+        "league_name"
     )
 
     df = add_pressure_meter(
@@ -121,7 +144,7 @@ def display_draft_board(limit=20):
     
     available = get_best_available(
         df,
-        league_name="Drunk Sundays",
+        league_name="league_name",
         limit=limit
     )
     run_df = calculate_run_scores(
@@ -138,10 +161,46 @@ def display_draft_board(limit=20):
 
     draft_context = get_draft_context(
         current_pick=current_pick,
-        user_slot=1,
-        rounds=15,
-        team_count=12
+        user_slot=user_slot,
+        rounds=league["rounds"],
+        team_count=league["team_count"]
     )
+
+    df = add_draft_brain(
+        df,
+        draft_context
+)
+
+    managers_before = get_managers_before_user(
+        draft_context["slots_before_user"],
+        league_name=league_name
+)       
+
+    threat_df = calculate_manager_need_threat(
+        df,
+        draft_context["slots_before_user"],
+        league_name=league_name
+)
+
+
+
+    available = get_best_available(
+        df,
+        league_name="league_name",
+        limit=limit
+)
+
+    print("\nPOSITION THREAT")
+
+    for _, threat in threat_df.iterrows():
+
+        print(
+            f"{threat['position']}: "
+            f"{threat['threat_label']} | "
+            f"{int(threat['needy_managers'])} needy managers"
+    )
+
+    print()
 
     print("\nDRAFT CONTEXT")
 
@@ -168,6 +227,18 @@ def display_draft_board(limit=20):
     print(
         f"Draft Slots Before You: {draft_context['slots_before_user']}"
     )
+
+    print("\nManagers Before Your Pick")
+
+    for manager in managers_before:
+
+        print(
+            f"Slot {manager['draft_slot']}: "
+            f"{manager['manager']}"
+    )
+
+    print("\n")
+
     
     print("\nPOSITION RUN MONITOR")
 
@@ -254,75 +325,119 @@ def display_draft_board(limit=20):
             f"{row['pressure_label']}"
 )
 
-    wait_report = analyze_wait(df,
+        wait_report = analyze_wait(df,
 
-        row["player_name_clean"],
-        picks_until_next=max(
-            1,
-            draft_context["picks_until_user"]
-        )
-)
-
-    print(
-            f"What If I Wait?: "
-            f"{wait_report['recommendation']}"
-)
-
-    print(
-            f"Reason: "
-            f"{wait_report['reason']}"
-)
-
-    print(
-            f"Estimated Survival: "
-            f"{wait_report['survival_score']:.0f}/100"
-)
-    print(
-        f"Picks Until Next Pick: "
-        f"{draft_context['picks_until_user']}"
+            row["player_name_clean"],
+            picks_until_next=max(
+                1,
+                draft_context["picks_until_user"]
+            )
     )
-    if wait_report["next_player"]:
-
         print(
-            f"Next {row['position']} Option: "
-            f"{wait_report['next_player']}"
+            f"Draft Brain: "
+            f"{row['brain_score']:.0f}/100 "
+            f"{row['brain_recommendation']}"
     )
 
-        print(
-            f"Projected Drop: "
-            f"{wait_report['projection_drop']:.1f} pts"
-    )
+        if row["brain_reasons"]:
 
-        print(
-            f"VORP Drop: "
-            f"{wait_report['vorp_drop']:.1f}"
-    )
-
-    position_run = get_position_run(
-        df,
-        row["position"],
-        recent_picks=8
-)
-
-    print(
-        f"{row['position']} Run: "
-        f"{position_run['run_label']} "
-        f"({int(position_run['position_picks'])} "
-        f"of last 8 picks)"
-)
-    print(
-        f"Draft Advice: "
-        f"{row['draft_value']}"
+            print(
+            "Why:"
         )
 
+        for reason in row["brain_reasons"]:
 
-    print(
-            f"Hidden Edge: "
-            f"{row['hidden_edge']}"
+            print(
+                f"  + {reason}"
+            )
+
+        if row["brain_warnings"]:
+
+            print(
+                "Warnings:"
         )
 
-    print(
-            "----------------------------------------------"
+        for warning in row["brain_warnings"]:
+
+            print(
+                f"  - {warning}"
+            )
+
+
+        print(
+                f"What If I Wait?: "
+                f"{wait_report['recommendation']}"
+    )
+
+        print(
+                f"Reason: "
+                f"{wait_report['reason']}"
+    )
+
+        print(
+                f"Estimated Survival: "
+                f"{wait_report['survival_score']:.0f}/100"
+    )
+        print(
+            f"Picks Until Next Pick: "
+            f"{draft_context['picks_until_user']}"
+        )
+        if wait_report["next_player"]:
+
+            print(
+                f"Next {row['position']} Option: "
+                f"{wait_report['next_player']}"
+        )
+
+            print(
+                f"Projected Drop: "
+                f"{wait_report['projection_drop']:.1f} pts"
+        )
+
+            print(
+                f"VORP Drop: "
+                f"{wait_report['vorp_drop']:.1f}"
+        )
+
+        position_run = get_position_run(
+            df,
+            row["position"],
+            recent_picks=8
+    )
+
+        print(
+            f"{row['position']} Run: "
+            f"{position_run['run_label']} "
+            f"({int(position_run['position_picks'])} "
+            f"of last 8 picks)"
+    )
+
+        position_threat = get_position_threat(
+            df,
+            draft_context["slots_before_user"],
+            row["position"],
+            league_name=league_name
+)
+
+        print(
+            f"{row['position']} Threat: "
+            f"{position_threat['threat_label']} "
+            f"({int(position_threat['needy_managers'])} needy managers)"
+)
+        
+        print(
+            f"Draft Advice: "
+            f"{row['draft_value']}"
+            )
+
+
+        print(
+                f"Hidden Edge: "
+                f"{row['hidden_edge']}"
+            )
+
+        print(
+                "----------------------------------------------"
         )
 
 

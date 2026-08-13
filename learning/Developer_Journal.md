@@ -87,3 +87,29 @@ git commit -m "Your message here" whatever you are naming todays files or status
 git push
 
 You'll type these hundreds of times.
+
+*************very important***********
+indentation means:
+
+def run_mock_draft():       ← 0 spaces
+
+    return draft_results    ← 4 spaces / inside function
+
+        available = ...     ← 8 spaces / inside loop
+
+
+
+
+Think of it like boxes inside boxes:
+
+LEAGUES = {                    ← YELLOW opens BIG box
+
+    "Drunk Sundays": {         ← PURPLE opens small box
+        ...
+    },                         ← PURPLE closes small box
+
+    "Somewhat Related": {      ← PURPLE opens another small box
+        ...
+    },                         ← PURPLE closes small box
+
+}                              ← YELLOW closes BIG box
