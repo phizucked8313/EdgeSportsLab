@@ -228,7 +228,32 @@ def get_team_position_counts(
 
     return counts
 
+def get_bye_week_counts(
+    draft_results,
+    team_name
+):
 
+    bye_counts = {}
+
+    for pick in draft_results:
+
+        if pick["fantasy_team"] != team_name:
+            continue
+
+        bye_week = pick.get("bye_week")
+
+        if bye_week is None:
+            continue
+
+        bye_counts[bye_week] = (
+            bye_counts.get(
+                bye_week,
+                0
+            )
+            + 1
+        )
+
+    return bye_counts
 
 def run_mock_draft(
     league_name,
@@ -407,9 +432,14 @@ def run_mock_draft(
                     "player": keeper["player"],
                     "position": keeper_position,
                     "nfl_team": keeper_nfl_team,
+                    "bye_week": get_bye_week(
+                        keeper_nfl_team
+                    ),
                     "keeper": True,
                 }
             )
+
+
 
             print(
                 f"KEEPER: "
@@ -421,6 +451,43 @@ def run_mock_draft(
         else:    
 
             if team_name == user_team:
+
+                bye_counts = get_bye_week_counts(
+                    draft_results,
+                    team_name
+                )
+
+                print(
+                    "\nBYE WEEK OVERVIEW"
+                )
+
+                if bye_counts:
+
+                    for bye_week in sorted(bye_counts):
+
+                        player_count = bye_counts[bye_week]
+
+                        warning = ""
+
+                        if player_count >= 3:
+                            warning = "  !!! HIGH CONFLICT !!!"
+
+                        elif player_count == 2:
+                            warning = "  ⚠ CONFLICT RISK"
+
+                        print(
+                            f"Week {bye_week}: "
+                            f"{player_count} player(s)"
+                            f"{warning}"
+                        )
+
+                else:
+
+                    print(
+                        "No bye-week conflicts yet."
+                    )        
+
+
 
                 print(
                     "\n"
@@ -589,11 +656,16 @@ def run_mock_draft(
                         .copy()
                     )
 
-                             
+                            
                 for index, (_, player) in enumerate(
                     top_available.iterrows(),
                     start=1
                 ):
+
+                    current_bye_count = bye_counts.get(
+                        int(player["bye_week"]),
+                        0
+                    )    
 
                     print(
                         f"{index}. "
@@ -604,11 +676,19 @@ def run_mock_draft(
                         f"Rank {int(player['draft_rank'])}"
                     )
 
+                if current_bye_count >= 2:
+
+                    print(
+                        f"   ⚠ Drafting this player would give you "
+                        f"{current_bye_count + 1} players on Bye "
+                        f"{int(player['bye_week'])}"
+                    )
+
                 selection = input(
                     "\nEnter the number of the player you want: "
                 )
-                
-                   
+        
+        
                 try:
                     selection_number = int(
                         selection
@@ -625,59 +705,55 @@ def run_mock_draft(
                             "Invalid selection."
                         )
 
-                        
+                
 
                 except ValueError:
-
-                        print(
-                            "Please enter a number."
-                        )
-
-                    
-
+                    print(
+                        "Please enter a number."
+                    )               
+        
 
                 selected_player = (
-                        top_available.iloc[
-                            selection_number - 1
-                        ]
+                    top_available.iloc[
+                        selection_number - 1
+                    ]
                 )
-
-
 
             else:
 
                 cpu_pool = available.copy()
 
-                # --------------------------------------------------------
+                # --------------------------------------------------
                 # EARLY ROSTER CONSTRUCTION RULES
-                # --------------------------------------------------------
+                # --------------------------------------------------
 
                 if round_number <= 8:
 
                     # Avoid a second QB early
                     if team_position_counts["QB"] >= 1:
-
                         cpu_pool = cpu_pool[
                             cpu_pool["position"] != "QB"
                         ]
 
                     # Avoid a second TE early
                     if team_position_counts["TE"] >= 1:
-
                         cpu_pool = cpu_pool[
                             cpu_pool["position"] != "TE"
                         ]
 
                 # Safety fallback
                 if cpu_pool.empty:
-
                     cpu_pool = available.copy()
 
+                # CPU makes its selection
                 selected_player = (
                     cpu_pool.iloc[0]
                 )
-          
 
+
+            # --------------------------------------------------
+            # RECORD PICK - RUNS FOR USER AND CPU
+            # --------------------------------------------------
 
             player_name = selected_player[
                 "player_name_clean"
@@ -700,9 +776,12 @@ def run_mock_draft(
                     "player": player_name,
                     "position": position,
                     "nfl_team": nfl_team,
+                    "bye_week": int(
+                        selected_player["bye_week"]
+                    ),
                     "keeper": False,
                 }
-)
+            )
 
             print(
                 f"\nSELECTED: "
@@ -714,7 +793,7 @@ def run_mock_draft(
                 f"{nfl_team}"
             )
 
-
+            # Remove drafted player from available pool
             available = available[
                 available[
                     "player_name_clean"
