@@ -54,3 +54,9 @@ htmlcov/
 fantasy_draft_model/output/*.csv
 fantasy_draft_model/output/*.xlsx
 fantasy_draft_model/output/*.pdf
+
+
+
+__pycache__/
+*.py[cod]
+*$py.class
