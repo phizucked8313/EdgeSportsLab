@@ -17,6 +17,8 @@ from fantasy_draft_model.rankings import (
 )
 from fantasy_draft_model.models.schedule import get_bye_week
 from fantasy_draft_model.ui.draft_board import build_draft_board
+from fantasy_draft_model.ui.player_selection import select_player
+from fantasy_draft_model.engines.cpu_draft import make_cpu_pick
 
 
 
@@ -510,107 +512,29 @@ def run_mock_draft(
                 print(
                     "\nBEST AVAILABLE"
                 )
+                             
+            if team_name == user_team:
 
-                top_available = build_draft_board(
-                    available
-                )
-                
+                selected_player = None
 
-                            
-                for index, (_, player) in enumerate(
-                    top_available.iterrows(),
-                    start=1
-                ):
+                while selected_player is None:
 
-                    current_bye_count = bye_counts.get(
-                        int(player["bye_week"]),
-                        0
-                    )    
-
-                    print(
-                        f"{index}. "
-                        f"{player['player_name_clean']} | "
-                        f"{player['position']} | "
-                        f"{player['team']} | "
-                        f"Bye {int(player['bye_week'])} | "
-                        f"Rank {int(player['draft_rank'])}"
+                    top_available = build_draft_board(
+                        available
                     )
 
-                if current_bye_count >= 2:
-
-                    print(
-                        f"   ⚠ Drafting this player would give you "
-                        f"{current_bye_count + 1} players on Bye "
-                        f"{int(player['bye_week'])}"
+                    selected_player = select_player(
+                        top_available,
+                        bye_counts,
                     )
-
-                selection = input(
-                    "\nEnter the number of the player you want: "
-                )
-        
-        
-                try:
-                    selection_number = int(
-                        selection
-                    )
-
-                    if (
-                        selection_number < 1
-                        or selection_number > len(
-                            top_available
-                        )
-                    ):
-
-                        print(
-                            "Invalid selection."
-                        )
-
-                
-
-                except ValueError:
-                    print(
-                        "Please enter a number."
-                    )               
-        
-
-                selected_player = (
-                    top_available.iloc[
-                        selection_number - 1
-                    ]
-                )
-
             else:
-
-                cpu_pool = available.copy()
-
-                # --------------------------------------------------
-                # EARLY ROSTER CONSTRUCTION RULES
-                # --------------------------------------------------
-
-                if round_number <= 8:
-
-                    # Avoid a second QB early
-                    if team_position_counts["QB"] >= 1:
-                        cpu_pool = cpu_pool[
-                            cpu_pool["position"] != "QB"
-                        ]
-
-                    # Avoid a second TE early
-                    if team_position_counts["TE"] >= 1:
-                        cpu_pool = cpu_pool[
-                            cpu_pool["position"] != "TE"
-                        ]
-
-                # Safety fallback
-                if cpu_pool.empty:
-                    cpu_pool = available.copy()
-
-                # CPU makes its selection
-                selected_player = (
-                    cpu_pool.iloc[0]
+                selected_player = make_cpu_pick(
+                    available,
+                    team_position_counts,
+                    round_number,
                 )
 
-
+                
             # --------------------------------------------------
             # RECORD PICK - RUNS FOR USER AND CPU
             # --------------------------------------------------
