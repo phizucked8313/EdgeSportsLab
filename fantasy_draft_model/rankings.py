@@ -12,7 +12,10 @@ from fantasy_draft_model.models.football_intelligence import (
     add_football_intelligence,
 )
 
-
+from fantasy_draft_model.models.special_teams import (
+    build_kicker_rankings,
+    build_defense_rankings,
+)
 
 # ============================================================
 # DRAFT SCORE
@@ -288,7 +291,12 @@ def build_draft_rankings():
     )
 
 
-    df = build_2026_projections()
+    df = build_2026_projections(
+
+    )
+
+    df = df.loc[:, ~df.columns.duplicated()].copy()
+
 
 
     df = calculate_draft_score(
@@ -313,6 +321,36 @@ def build_draft_rankings():
     df = add_football_intelligence(
         df
 )
+
+    kickers = build_kicker_rankings()
+    defenses = build_defense_rankings()
+
+    special_teams = pd.concat(
+        [
+            kickers,
+            defenses,
+        ],
+        ignore_index=True,
+    )
+
+    special_teams["draft_rank"] = range(
+        len(df) + 1,
+        len(df) + len(special_teams) + 1,
+    )
+
+    special_teams["position_rank_label"] = (
+        special_teams["position"].astype(str)
+            + special_teams["position_rank"].astype(str)
+    )
+
+    df = pd.concat(
+        [
+            df,
+            special_teams,
+        ],
+        ignore_index=True,
+        sort=False,
+    )
 
     
     return df

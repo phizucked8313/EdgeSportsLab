@@ -21,6 +21,16 @@ from fantasy_draft_model.ui.player_selection import select_player
 from fantasy_draft_model.engines.cpu_draft import make_cpu_pick
 
 
+def normalize_team_name(name):
+    return (
+        str(name)
+        .strip()
+        .lower()
+        .replace("’", "'")
+    )
+
+
+
 
 
 def load_mock_league(league_name):
@@ -452,8 +462,8 @@ def run_mock_draft(
 
         else:    
 
-            if team_name == user_team:
-
+            if normalize_team_name(team_name) == normalize_team_name(user_team):
+                   
                 bye_counts = get_bye_week_counts(
                     draft_results,
                     team_name
@@ -532,6 +542,7 @@ def run_mock_draft(
                     available,
                     team_position_counts,
                     round_number,
+                    team_name,
                 )
 
                 
