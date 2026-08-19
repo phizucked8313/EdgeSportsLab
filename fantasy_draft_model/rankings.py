@@ -11,7 +11,6 @@ from fantasy_draft_model.engines.projection_engine import (
 from fantasy_draft_model.models.football_intelligence import (
     add_football_intelligence,
 )
-
 from fantasy_draft_model.models.special_teams import (
     build_kicker_rankings,
     build_defense_rankings,
@@ -46,6 +45,70 @@ def add_zero_based_vorp_score(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
+# POSITION PROJECTION NORMALIZATION
+# ============================================================
+
+def add_position_projection_score(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize projection value within position.
+
+    In a 1-QB league, quarterback projection value is based on points
+    above the current QB replacement line. Replacement-level and
+    below-replacement QBs receive zero projection value.
+
+    Other positions retain the existing within-position min-max scale.
+    """
+
+    df = df.copy()
+    df["projection_score"] = 50.0
+
+    for position in df["position"].dropna().unique():
+        position_mask = df["position"] == position
+
+        if position == "QB" and "replacement_points" in df.columns:
+            qb_value = (
+                df.loc[position_mask, "projected_points"]
+                - df.loc[position_mask, "replacement_points"]
+            ).clip(lower=0)
+
+            qb_value_max = qb_value.max()
+
+            if qb_value_max > 0:
+                df.loc[position_mask, "projection_score"] = (
+                    qb_value
+                    / qb_value_max
+                    * 100
+                )
+            else:
+                df.loc[position_mask, "projection_score"] = 0.0
+
+            continue
+
+        projection_min = (
+            df.loc[position_mask, "projected_points"].min()
+        )
+        projection_max = (
+            df.loc[position_mask, "projected_points"].max()
+        )
+
+        if projection_max != projection_min:
+            df.loc[position_mask, "projection_score"] = (
+                (
+                    df.loc[position_mask, "projected_points"]
+                    - projection_min
+                )
+                /
+                (
+                    projection_max
+                    - projection_min
+                )
+                * 100
+            )
+
+    return df
+
+
+# ============================================================
 # DRAFT SCORE
 # ============================================================
 
@@ -71,40 +134,11 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
 
     df = add_zero_based_vorp_score(df)
 
-
     # ---------------------------------------
-    # NORMALIZE PROJECTION WITHIN POSITION
+    # NORMALIZE PROJECTION VALUE
     # ---------------------------------------
 
-    df["projection_score"] = 50.0
-
-    for position in df["position"].dropna().unique():
-
-        position_mask = df["position"] == position
-
-        projection_min = (
-            df.loc[position_mask, "projected_points"].min()
-        )
-
-        projection_max = (
-            df.loc[position_mask, "projected_points"].max()
-        )
-
-        if projection_max != projection_min:
-
-            df.loc[position_mask, "projection_score"] = (
-                (
-                    df.loc[position_mask, "projected_points"]
-                    - projection_min
-                )
-                /
-                (
-                    projection_max
-                    - projection_min
-                )
-                * 100
-            )
-
+    df = add_position_projection_score(df)
 
     # -----------------------------------------
     # TIER SCARCITY BONUS
@@ -135,7 +169,6 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
         == "DEPTH AVAILABLE",
         "tier_scarcity_score"
     ] = 35
-
 
     # -----------------------------------------
     # DRAFT SCORE
