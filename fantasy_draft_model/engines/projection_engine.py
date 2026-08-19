@@ -151,6 +151,30 @@ def add_manual_adjustments(df):
     return df
 
 
+def neutralize_positive_ripple_for_current_injuries(df):
+    """Prevent currently injured players from benefiting from positive team ripple."""
+    result = df.copy()
+
+    if (
+        "is_currently_injured" not in result.columns
+        or "injury_ripple_multiplier" not in result.columns
+    ):
+        return result
+
+    injured = result["is_currently_injured"].fillna(False).astype(bool)
+    positive_ripple = pd.to_numeric(
+        result["injury_ripple_multiplier"],
+        errors="coerce",
+    ).fillna(1.0) > 1.0
+
+    result.loc[
+        injured & positive_ripple,
+        "injury_ripple_multiplier",
+    ] = 1.0
+
+    return result
+
+
 def calculate_projection(df):
     df = df.copy()
 
