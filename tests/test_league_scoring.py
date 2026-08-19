@@ -8,47 +8,39 @@ from fantasy_draft_model.models.projections import (
 )
 
 
-def _scoring_row():
+def _zero_scoring_row():
     return pd.DataFrame(
         {
-            "receptions": [1],
-            "rushing_yards": [10],
-            "receiving_yards": [20],
-            "passing_yards": [25],
-            "rushing_tds": [1],
-            "receiving_tds": [1],
-            "passing_tds": [1],
-            "games_300_pass": [1],
-            "games_100_rush": [1],
-            "games_100_receive": [1],
+            "receptions": [0],
+            "rushing_yards": [0],
+            "receiving_yards": [0],
+            "passing_yards": [0],
+            "rushing_tds": [0],
+            "receiving_tds": [0],
+            "passing_tds": [0],
+            "passing_interceptions": [0],
+            "fumbles_lost": [0],
+            "two_point_conversions": [0],
+            "return_tds": [0],
+            "offensive_fumble_return_tds": [0],
+            "games_300_pass": [0],
+            "games_400_pass": [0],
+            "games_500_pass": [0],
+            "games_100_rush": [0],
+            "games_200_rush": [0],
+            "games_300_rush": [0],
+            "games_100_receive": [0],
+            "games_200_receive": [0],
+            "games_300_receive": [0],
+            "plays_40_pass_completion": [0],
+            "plays_40_pass_td": [0],
+            "plays_40_rush": [0],
+            "plays_40_rush_td": [0],
+            "plays_40_reception": [0],
+            "plays_40_reception_td": [0],
             "games_played": [1],
         }
     )
-
-
-def test_custom_fantasy_scoring_uses_supplied_league_settings():
-    settings = {
-        "scoring": {
-            "reception": 2.0,
-            "rushing_yard": 0.2,
-            "receiving_yard": 0.3,
-            "passing_yard": 0.1,
-            "rushing_td": 5,
-            "receiving_td": 7,
-            "passing_td": 6,
-            "bonus_300_passing": 4,
-            "bonus_100_rushing": 5,
-            "bonus_100_receiving": 6,
-        }
-    }
-
-    result = add_custom_fantasy_scoring(
-        _scoring_row(),
-        league_settings=settings,
-    )
-
-    assert result.loc[0, "custom_fantasy_points"] == 45.5
-    assert result.loc[0, "custom_points_per_game"] == 45.5
 
 
 def test_league_settings_require_explicit_key():
@@ -122,3 +114,74 @@ def test_bonus_flags_are_cumulative():
         "game_200_receive",
         "game_300_receive",
     ]].tolist() == [1] * 9
+
+
+def test_passing_milestone_bonuses_stack_cumulatively():
+    df = _zero_scoring_row()
+    df.loc[0, "passing_yards"] = 500
+    df.loc[0, ["games_300_pass", "games_400_pass", "games_500_pass"]] = 1
+
+    result = add_custom_fantasy_scoring(
+        df,
+        load_league_settings("drunk_sundays"),
+    )
+
+    assert result.loc[0, "custom_fantasy_points"] == 32.0
+
+
+def test_rushing_and_receiving_milestone_bonuses_stack_cumulatively():
+    df = _zero_scoring_row()
+    df.loc[0, "rushing_yards"] = 300
+    df.loc[0, "receiving_yards"] = 300
+    df.loc[0, ["games_100_rush", "games_200_rush", "games_300_rush"]] = 1
+    df.loc[0, [
+        "games_100_receive",
+        "games_200_receive",
+        "games_300_receive",
+    ]] = 1
+
+    result = add_custom_fantasy_scoring(
+        df,
+        load_league_settings("drunk_sundays"),
+    )
+
+    # 30 rush yards points + 30 receiving yards points
+    # + 12 cumulative rush bonus + 12 cumulative receiving bonus.
+    assert result.loc[0, "custom_fantasy_points"] == 84.0
+
+
+def test_same_long_play_profile_scores_differently_by_league():
+    df = _zero_scoring_row()
+    df.loc[0, "plays_40_rush"] = 1
+    df.loc[0, "plays_40_reception"] = 1
+    df.loc[0, "plays_40_rush_td"] = 1
+    df.loc[0, "plays_40_reception_td"] = 1
+
+    drunk = add_custom_fantasy_scoring(
+        df,
+        load_league_settings("drunk_sundays"),
+    )
+    related = add_custom_fantasy_scoring(
+        df,
+        load_league_settings("somewhat_related"),
+    )
+
+    assert drunk.loc[0, "custom_fantasy_points"] == 8
+    assert related.loc[0, "custom_fantasy_points"] == 12
+
+
+def test_turnovers_conversions_and_return_scores_use_yahoo_values():
+    df = _zero_scoring_row()
+    df.loc[0, "passing_interceptions"] = 1
+    df.loc[0, "fumbles_lost"] = 1
+    df.loc[0, "two_point_conversions"] = 1
+    df.loc[0, "return_tds"] = 1
+    df.loc[0, "offensive_fumble_return_tds"] = 1
+
+    result = add_custom_fantasy_scoring(
+        df,
+        load_league_settings("drunk_sundays"),
+    )
+
+    # -1 interception -2 fumble +2 conversion +6 return TD +6 fumble return TD.
+    assert result.loc[0, "custom_fantasy_points"] == 11.0
