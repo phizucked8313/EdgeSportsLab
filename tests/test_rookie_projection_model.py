@@ -4,6 +4,8 @@ from fantasy_draft_model.engines.talent_engine import (
     calculate_rookie_talent_score,
     add_rookie_opportunity_score,
     add_rookie_position_curve,
+    add_touch_efficiency_metrics,
+    add_rookie_ramp_factor,
 )
 
 
@@ -59,3 +61,43 @@ def test_position_curves_are_distinct_and_veterans_are_neutral():
     assert result.loc["QB Rookie", "rookie_position_curve_score"] == 65.0
     assert result.loc["TE Rookie", "rookie_position_curve_score"] == 55.0
     assert result.loc["Veteran", "rookie_position_curve_score"] == 50.0
+
+
+def test_touch_math_and_fantasy_points_per_touch():
+    df = pd.DataFrame([{
+        "player_name_clean": "Example RB",
+        "position": "RB",
+        "is_rookie": False,
+        "carries": 14,
+        "receptions": 5,
+        "custom_fantasy_points": 19.0,
+    }])
+    result = add_touch_efficiency_metrics(df)
+
+    assert result.loc[0, "touches"] == 19
+    assert result.loc[0, "fantasy_points_per_touch"] == 1.0
+
+
+def test_confirmed_starter_rb_gets_more_opportunity_than_backup():
+    df = pd.DataFrame([
+        {"player_name_clean": "Starter", "position": "RB", "team": "AAA", "status": "Active", "is_rookie": True, "draft_number": 20, "rookie_role": "STARTER"},
+        {"player_name_clean": "Backup", "position": "RB", "team": "AAA", "status": "Active", "is_rookie": True, "draft_number": 20, "rookie_role": "BACKUP"},
+    ])
+    df = calculate_rookie_talent_score(df)
+    result = add_rookie_opportunity_score(df).set_index("player_name_clean")
+
+    assert result.loc["Starter", "rookie_opportunity_score"] > result.loc["Backup", "rookie_opportunity_score"]
+
+
+def test_wr_gets_modest_six_week_ramp_and_rb_does_not():
+    df = pd.DataFrame([
+        {"player_name_clean": "WR", "position": "WR", "is_rookie": True},
+        {"player_name_clean": "RB", "position": "RB", "is_rookie": True},
+        {"player_name_clean": "Veteran", "position": "WR", "is_rookie": False},
+    ])
+    result = add_rookie_ramp_factor(df).set_index("player_name_clean")
+
+    assert result.loc["WR", "rookie_ramp_weeks"] == 6
+    assert result.loc["WR", "rookie_ramp_factor"] == 0.96
+    assert result.loc["RB", "rookie_ramp_factor"] == 1.0
+    assert result.loc["Veteran", "rookie_ramp_factor"] == 1.0
