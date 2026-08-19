@@ -2,6 +2,7 @@
 
 from functools import reduce
 
+import nflreadpy as nfl
 import pandas as pd
 
 
@@ -74,3 +75,14 @@ def aggregate_long_play_counts(pbp_df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return result[["player_id", *LONG_PLAY_COUNTERS]]
+
+
+def load_2025_long_play_counts() -> pd.DataFrame:
+    """Load 2025 regular-season play-by-play and aggregate 40+ yard events."""
+
+    pbp = nfl.load_pbp(seasons=[2025]).to_pandas()
+
+    if "season_type" in pbp.columns:
+        pbp = pbp.loc[pbp["season_type"] == "REG"].copy()
+
+    return aggregate_long_play_counts(pbp)
