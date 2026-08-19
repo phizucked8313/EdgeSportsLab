@@ -9,6 +9,8 @@ the available draft pool before the draft starts.
 import pandas as pd
 from pathlib import Path
 
+from fantasy_draft_model.models.league_profile import get_league
+
 
 KEEPER_FILE = (
     Path(__file__).parent
@@ -89,26 +91,30 @@ def add_keeper(
 
     df = load_keepers()
 
+    league = get_league(league_name)
+    if league is None:
+        raise ValueError(
+            f"Unknown league_name {league_name!r}"
+        )
+
     keeper_type = (
         keeper_type
         .strip()
         .lower()
     )
 
-    if keeper_type == "rookie":
+    keeper_rules = league["keeper_rules"]
 
-        keeper_round = 3
-
-    elif keeper_type == "standard":
-
-        keeper_round = 15
-
-    else:
-
+    if keeper_type not in keeper_rules:
+        valid = ", ".join(sorted(keeper_rules))
         raise ValueError(
-            "keeper_type must be "
-            "'rookie' or 'standard'"
+            f"keeper_type {keeper_type!r} is not allowed for "
+            f"{league_name}. Valid keeper types: {valid}"
         )
+
+    keeper_round = int(
+        keeper_rules[keeper_type]
+    )
 
 
     duplicate = (
