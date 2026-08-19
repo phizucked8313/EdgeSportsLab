@@ -30,7 +30,7 @@ from fantasy_draft_model.engines.injury_ripple_engine import (
 )
 
 from fantasy_draft_model.engines.talent_engine import (
-    calculate_rookie_talent_score,
+    add_rookie_projection_components,
     add_rookie_baseline_projection,
 )
 
@@ -737,7 +737,7 @@ def build_2026_projections():
 
     df = build_player_profiles()
 
-    df = calculate_rookie_talent_score(
+    df = add_rookie_projection_components(
         df
     )
 
