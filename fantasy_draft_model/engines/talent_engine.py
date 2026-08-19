@@ -8,9 +8,8 @@ def calculate_rookie_talent_score(df):
     """
     Add a rookie talent score to the EdgeIQ player pool.
 
-    Version 1 uses NFL draft capital as the primary signal.
-
-    Higher score = stronger rookie prospect profile.
+    NFL draft capital is the primary signal.
+    Earlier picks receive smoothly higher scores than later picks.
     Veterans receive a neutral score of 50.
     """
 
@@ -21,45 +20,25 @@ def calculate_rookie_talent_score(df):
     if "is_rookie" not in df.columns:
         return df
 
+    if "draft_number" not in df.columns:
+        df["draft_number"] = None
+
     rookie_mask = df["is_rookie"] == True
 
     for index in df[rookie_mask].index:
+        draft_number = pd.to_numeric(
+            pd.Series([df.at[index, "draft_number"]]),
+            errors="coerce",
+        ).iloc[0]
 
-        draft_number = df.at[index, "draft_number"]
-
-        # Undrafted or missing draft information
         if pd.isna(draft_number) or draft_number <= 0:
-            score = 35.0
-
-        # Round 1
-        elif draft_number <= 32:
-            score = 95.0
-
-        # Round 2
-        elif draft_number <= 64:
-            score = 85.0
-
-        # Round 3
-        elif draft_number <= 100:
-            score = 75.0
-
-        # Round 4
-        elif draft_number <= 135:
-            score = 65.0
-
-        # Round 5
-        elif draft_number <= 175:
-            score = 55.0
-
-        # Round 6
-        elif draft_number <= 215:
-            score = 45.0
-
-        # Round 7
+            score = 30.0
         else:
-            score = 40.0
+            capped_pick = min(float(draft_number), 257.0)
+            score = 100.0 - ((capped_pick - 1.0) / 256.0) * 70.0
+            score = max(30.0, min(100.0, score))
 
-        df.at[index, "rookie_talent_score"] = score
+        df.at[index, "rookie_talent_score"] = round(score, 2)
 
     return df
 
@@ -114,5 +93,3 @@ def add_rookie_baseline_projection(df):
     )
 
     return df
-
-
