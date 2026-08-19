@@ -46,7 +46,7 @@ LEAGUES = {
             "standard": 16,
         },
         "team_count": 12,
-        "roster_size": 16,
+        "roster_size": 15,
         "starters": {
             "QB": 1,
             "RB": 2,
@@ -56,7 +56,7 @@ LEAGUES = {
             "K": 1,
             "DEF": 1,
         },
-        "bench_size": 6,
+        "bench_size": 5,
         "draft_order": [
             "Stopped Short",
             "Winner in Mexico",
