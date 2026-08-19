@@ -62,3 +62,70 @@ def test_current_roster_presence_is_preserved_after_outer_merge():
 
     assert bool(result.loc["rook", "on_current_roster"]) is True
     assert bool(result.loc["old", "on_current_roster"]) is False
+
+
+def test_draftability_is_separate_from_rookie_identity():
+    df = pd.DataFrame([
+        {
+            "player_name_clean": "Drafted Rookie",
+            "position": "RB",
+            "team": "AAA",
+            "on_current_roster": True,
+            "is_rookie": True,
+            "draft_number": 45,
+            "games_played": 0,
+            "status": "Active",
+        },
+        {
+            "player_name_clean": "Fringe Rookie",
+            "position": "WR",
+            "team": "BBB",
+            "on_current_roster": True,
+            "is_rookie": True,
+            "draft_number": 0,
+            "games_played": 0,
+            "status": "Inactive",
+        },
+        {
+            "player_name_clean": "Veteran Producer",
+            "position": "WR",
+            "team": "CCC",
+            "on_current_roster": True,
+            "is_rookie": False,
+            "draft_number": 0,
+            "games_played": 12,
+            "status": "Active",
+        },
+        {
+            "player_name_clean": "Historical Only",
+            "position": "WR",
+            "team": "DDD",
+            "on_current_roster": False,
+            "is_rookie": False,
+            "draft_number": 0,
+            "games_played": 10,
+            "status": None,
+        },
+        {
+            "player_name_clean": "PUP Star",
+            "position": "RB",
+            "team": "EEE",
+            "on_current_roster": True,
+            "is_rookie": False,
+            "draft_number": 0,
+            "games_played": 15,
+            "status": "PUP",
+        },
+    ])
+
+    helper = getattr(projections, "add_fantasy_draftable_flag", None)
+    assert helper is not None, "add_fantasy_draftable_flag helper is not implemented yet"
+
+    result = helper(df).set_index("player_name_clean")
+
+    assert bool(result.loc["Drafted Rookie", "is_fantasy_draftable"]) is True
+    assert bool(result.loc["Fringe Rookie", "is_fantasy_draftable"]) is False
+    assert bool(result.loc["Veteran Producer", "is_fantasy_draftable"]) is True
+    assert bool(result.loc["Historical Only", "is_fantasy_draftable"]) is False
+    assert bool(result.loc["PUP Star", "is_fantasy_draftable"]) is True
+    assert bool(result.loc["Fringe Rookie", "is_rookie"]) is True
