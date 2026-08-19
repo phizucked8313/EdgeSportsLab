@@ -24,6 +24,11 @@ def test_somewhat_related_keeper_policy_is_explicit():
     }
 
 
+def test_league_profiles_define_correct_draft_rounds():
+    assert get_league("Drunk Sundays")["draft_rounds"] == 15
+    assert get_league("Somewhat Related")["draft_rounds"] == 16
+
+
 def test_somewhat_related_standard_keeper_costs_round_16(tmp_path, monkeypatch):
     keeper_file = tmp_path / "keepers.csv"
     monkeypatch.setattr(keepers, "KEEPER_FILE", keeper_file)
