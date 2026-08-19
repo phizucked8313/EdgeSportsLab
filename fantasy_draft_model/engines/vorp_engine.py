@@ -5,8 +5,6 @@ Version 1
 
 import pandas as pd
 
-from fantasy_draft_model.config import load_league_settings
-
 
 FLEX_ELIGIBLE_POSITIONS = ("RB", "WR")
 VORP_POSITIONS = ("QB", "RB", "WR", "TE")
@@ -14,11 +12,11 @@ VORP_POSITIONS = ("QB", "RB", "WR", "TE")
 
 def calculate_replacement_ranks(
     df: pd.DataFrame,
-    league_settings=None,
+    league_settings,
 ) -> dict[str, int]:
     """Derive replacement ranks from lineup demand plus projected FLEX use."""
 
-    settings = league_settings or load_league_settings()
+    settings = league_settings
     teams = int(settings["teams"])
     lineup = settings["lineup"]
 
@@ -57,7 +55,7 @@ def calculate_replacement_ranks(
 
 def calculate_vorp(
     df: pd.DataFrame,
-    league_settings=None,
+    league_settings,
 ):
 
     df = df.copy()
