@@ -285,6 +285,10 @@ def run_mock_draft(
     if rounds is None:
         rounds = int(league["draft_rounds"])
 
+    cpu_draft_rounds = int(
+        league.get("draft_rounds", rounds)
+    )
+
     rankings = build_draft_rankings(
         league["league_key"]
     )
@@ -572,7 +576,7 @@ def run_mock_draft(
                     team_position_counts,
                     round_number,
                     team_name,
-                    draft_rounds=int(league["draft_rounds"]),
+                    draft_rounds=cpu_draft_rounds,
                 )
 
                 
