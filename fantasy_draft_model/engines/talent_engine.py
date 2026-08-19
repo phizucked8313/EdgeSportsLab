@@ -211,6 +211,72 @@ def add_rookie_ramp_factor(df):
     return df
 
 
+def add_rookie_team_environment(df):
+    """Add a bounded team-environment multiplier with a neutral default."""
+
+    df = df.copy()
+
+    if "rookie_team_environment_multiplier" not in df.columns:
+        df["rookie_team_environment_multiplier"] = 1.0
+    else:
+        df["rookie_team_environment_multiplier"] = (
+            pd.to_numeric(
+                df["rookie_team_environment_multiplier"],
+                errors="coerce",
+            )
+            .fillna(1.0)
+            .clip(lower=0.95, upper=1.05)
+        )
+
+    return df
+
+
+def add_rookie_projection_components(df):
+    """
+    Build EdgeIQ's multi-factor rookie projection score.
+
+    Weights:
+    - 45% draft-capital talent
+    - 30% roster opportunity
+    - 20% position rookie curve
+    - 5% neutral prospect-profile hook
+
+    Team environment and the modest rookie WR ramp are applied after the
+    weighted score. Veterans remain neutral at 50.
+    """
+
+    df = df.copy()
+    df = calculate_rookie_talent_score(df)
+    df = add_touch_efficiency_metrics(df)
+    df = add_rookie_opportunity_score(df)
+    df = add_rookie_position_curve(df)
+    df = add_rookie_team_environment(df)
+    df = add_rookie_ramp_factor(df)
+
+    df["rookie_prospect_profile_score"] = 50.0
+    df["rookie_projection_score"] = 50.0
+
+    if "is_rookie" not in df.columns:
+        return df
+
+    rookie_mask = df["is_rookie"] == True
+
+    weighted = (
+        df.loc[rookie_mask, "rookie_talent_score"] * 0.45
+        + df.loc[rookie_mask, "rookie_opportunity_score"] * 0.30
+        + df.loc[rookie_mask, "rookie_position_curve_score"] * 0.20
+        + df.loc[rookie_mask, "rookie_prospect_profile_score"] * 0.05
+    )
+
+    df.loc[rookie_mask, "rookie_projection_score"] = (
+        weighted
+        * df.loc[rookie_mask, "rookie_team_environment_multiplier"]
+        * df.loc[rookie_mask, "rookie_ramp_factor"]
+    ).clip(lower=0.0, upper=100.0).round(2)
+
+    return df
+
+
 def add_rookie_baseline_projection(df):
     """
     Create a simple rookie baseline fantasy projection.
