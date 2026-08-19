@@ -2,7 +2,10 @@ import pandas as pd
 import pytest
 
 from fantasy_draft_model.config import load_league_settings
-from fantasy_draft_model.models.projections import add_custom_fantasy_scoring
+from fantasy_draft_model.models.projections import (
+    add_bonus_flags,
+    add_custom_fantasy_scoring,
+)
 
 
 def _scoring_row():
@@ -95,3 +98,27 @@ def test_somewhat_related_profile_matches_yahoo_settings():
     assert defense["points_allowed"]["0"] == 10
     assert defense["points_allowed"]["28_34"] == 1
     assert defense["yards_allowed"] == {}
+
+
+def test_bonus_flags_are_cumulative():
+    weekly = pd.DataFrame(
+        {
+            "passing_yards": [500],
+            "rushing_yards": [300],
+            "receiving_yards": [300],
+        }
+    )
+
+    result = add_bonus_flags(weekly)
+
+    assert result.loc[0, [
+        "game_300_pass",
+        "game_400_pass",
+        "game_500_pass",
+        "game_100_rush",
+        "game_200_rush",
+        "game_300_rush",
+        "game_100_receive",
+        "game_200_receive",
+        "game_300_receive",
+    ]].tolist() == [1] * 9
