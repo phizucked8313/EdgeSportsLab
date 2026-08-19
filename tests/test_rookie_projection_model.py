@@ -2,6 +2,8 @@ import pandas as pd
 
 from fantasy_draft_model.engines.talent_engine import (
     calculate_rookie_talent_score,
+    add_rookie_opportunity_score,
+    add_rookie_position_curve,
 )
 
 
@@ -28,3 +30,32 @@ def test_missing_draft_capital_is_low_but_nonzero_and_veterans_stay_neutral():
 
     assert result.loc["Missing Pick", "rookie_talent_score"] == 30.0
     assert result.loc["Veteran", "rookie_talent_score"] == 50.0
+
+
+def test_high_capital_rookie_gets_more_opportunity_than_late_pick():
+    df = pd.DataFrame([
+        {"player_name_clean": "Early", "position": "WR", "team": "AAA", "status": "Active", "is_rookie": True, "draft_number": 10},
+        {"player_name_clean": "Late", "position": "WR", "team": "BBB", "status": "Active", "is_rookie": True, "draft_number": 220},
+    ])
+    df = calculate_rookie_talent_score(df)
+    result = add_rookie_opportunity_score(df).set_index("player_name_clean")
+
+    assert result.loc["Early", "rookie_opportunity_score"] > result.loc["Late", "rookie_opportunity_score"]
+    assert result["rookie_opportunity_score"].between(35.0, 90.0).all()
+
+
+def test_position_curves_are_distinct_and_veterans_are_neutral():
+    df = pd.DataFrame([
+        {"player_name_clean": "RB Rookie", "position": "RB", "is_rookie": True},
+        {"player_name_clean": "WR Rookie", "position": "WR", "is_rookie": True},
+        {"player_name_clean": "TE Rookie", "position": "TE", "is_rookie": True},
+        {"player_name_clean": "QB Rookie", "position": "QB", "is_rookie": True},
+        {"player_name_clean": "Veteran", "position": "RB", "is_rookie": False},
+    ])
+    result = add_rookie_position_curve(df).set_index("player_name_clean")
+
+    assert result.loc["RB Rookie", "rookie_position_curve_score"] == 85.0
+    assert result.loc["WR Rookie", "rookie_position_curve_score"] == 75.0
+    assert result.loc["QB Rookie", "rookie_position_curve_score"] == 65.0
+    assert result.loc["TE Rookie", "rookie_position_curve_score"] == 55.0
+    assert result.loc["Veteran", "rookie_position_curve_score"] == 50.0
