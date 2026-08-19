@@ -177,7 +177,6 @@ def add_bonus_flags(df):
 
     return df
 
-
 # ============================================================
 # AGGREGATE TO ONE PLAYER
 # ============================================================
@@ -565,7 +564,9 @@ def create_master_player_table():
         df
     )
 
-
+    df = add_fantasy_draftable_flag(
+        df
+    )
 
     df = add_calculated_metrics(
         df
