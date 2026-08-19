@@ -11,15 +11,6 @@ from fantasy_draft_model.config import load_league_settings
 FLEX_ELIGIBLE_POSITIONS = ("RB", "WR")
 VORP_POSITIONS = ("QB", "RB", "WR", "TE")
 
-# Legacy replacement ranks remain in place until Task 3 wires the
-# dynamic calculation into calculate_vorp().
-REPLACEMENT_RANKS = {
-    "QB": 12,
-    "RB": 24,
-    "WR": 24,
-    "TE": 12,
-}
-
 
 def calculate_replacement_ranks(
     df: pd.DataFrame,
@@ -64,15 +55,22 @@ def calculate_replacement_ranks(
     return replacement_ranks
 
 
-def calculate_vorp(df: pd.DataFrame):
+def calculate_vorp(
+    df: pd.DataFrame,
+    league_settings=None,
+):
 
     df = df.copy()
+    replacement_ranks = calculate_replacement_ranks(
+        df,
+        league_settings,
+    )
 
     df["position_rank"] = 0
     df["vorp"] = 0.0
     df["replacement_points"] = 0.0
 
-    for position, replacement_rank in REPLACEMENT_RANKS.items():
+    for position, replacement_rank in replacement_ranks.items():
 
         position_mask = df["position"] == position
 
