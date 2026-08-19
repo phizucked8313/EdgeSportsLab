@@ -272,12 +272,15 @@ def get_bye_week_counts(
 def run_mock_draft(
     league_name,
     user_team,
-    rounds=15
+    rounds=None
 ):
 
     league = load_mock_league(
         league_name
     )
+
+    if rounds is None:
+        rounds = int(league["draft_rounds"])
 
     rankings = build_draft_rankings(
         league["league_key"]
