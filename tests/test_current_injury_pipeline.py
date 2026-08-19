@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 from fantasy_draft_model.models.team_injury_impact_engine import (
@@ -63,3 +65,13 @@ def test_normalized_current_injury_flows_into_ripple_multiplier():
     assert ripple.loc[0, "team"] == "AAA"
     assert ripple.loc[0, "pass_catcher_injury_impact"] > 0
     assert ripple.loc[0, "wr_ripple_multiplier"] > 1.0
+
+
+def test_projection_engine_uses_normalized_current_injury_loader():
+    source = Path(
+        "fantasy_draft_model/engines/projection_engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "current_injury_normalizer" in source
+    assert "load_normalized_current_injuries" in source
+    assert "integrations.injury_history_loader" not in source
