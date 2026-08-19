@@ -146,7 +146,9 @@ def build_keeper_reservations(
         )
 
         if draft_slot is None:
-            continue
+            raise ValueError(
+                f"Keeper team {team_name!r} is not in the {league_name} draft order"
+            )
 
         overall_pick = calculate_snake_pick(
             round_number,
@@ -277,7 +279,9 @@ def run_mock_draft(
         league_name
     )
 
-    rankings = build_draft_rankings()
+    rankings = build_draft_rankings(
+        league["league_key"]
+    )
 
 
     keeper_reservations = (
