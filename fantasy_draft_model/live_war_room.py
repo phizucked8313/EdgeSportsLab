@@ -230,6 +230,28 @@ def record_manual_pick(state, player_row, state_path=DEFAULT_STATE_PATH):
     return pick
 
 
+def undo_last_manual_pick(state, state_path=DEFAULT_STATE_PATH):
+    """Undo the most recent manual pick and reopen crossed keeper slots."""
+    manual_picks = state.get("manual_picks", [])
+    if not manual_picks:
+        raise ValueError("No manual picks to undo")
+
+    current_pick = int(state["current_pick"])
+    removed = manual_picks[-1]
+    restored_pick = int(removed["pick_number"])
+
+    state["manual_picks"] = manual_picks[:-1]
+    state["processed_keeper_picks"] = [
+        int(pick_number)
+        for pick_number in state.get("processed_keeper_picks", [])
+        if not restored_pick < int(pick_number) < current_pick
+    ]
+    state["current_pick"] = restored_pick
+
+    save_war_room_state(state, state_path)
+    return removed
+
+
 def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
     """Create and persist a fresh War Room state for one league."""
     league = resolve_league(league_identifier)
