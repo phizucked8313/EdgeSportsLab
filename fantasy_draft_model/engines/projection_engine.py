@@ -24,6 +24,7 @@ from fantasy_draft_model.engines.injury_ripple_engine import (
     build_team_offensive_ripple,
     add_fantasy_ripple_scores,
     add_projection_multipliers,
+    add_player_opportunity_ripple,
 )
 from fantasy_draft_model.engines.talent_engine import (
     add_rookie_projection_components,
@@ -254,6 +255,8 @@ def build_2026_projections(league_key):
 
     current_injuries = load_normalized_current_injuries()
     current_injuries = add_team_injury_impact(current_injuries)
+    df = add_player_opportunity_ripple(df, current_injuries)
+
     team_ripple = build_team_offensive_ripple(current_injuries)
     team_ripple = add_fantasy_ripple_scores(team_ripple)
     team_ripple = add_projection_multipliers(team_ripple)
@@ -289,7 +292,9 @@ def build_2026_projections(league_key):
         )
 
     df["projected_points"] = (
-        df["projected_points"] * df["injury_ripple_multiplier"]
+        df["projected_points"]
+        * df["injury_ripple_multiplier"]
+        * df["injury_opportunity_multiplier"]
     )
     df["injury_projection_change"] = (
         df["projected_points"]
