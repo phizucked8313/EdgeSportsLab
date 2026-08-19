@@ -80,3 +80,46 @@ def test_replacement_ranks_change_with_league_lineup():
         "WR": 3,
         "TE": 3,
     }
+
+
+def test_calculate_vorp_uses_dynamic_flex_replacement_ranks():
+    df = pd.DataFrame(
+        {
+            "player_name_clean": [
+                "RB1", "RB2", "RB3", "RB4",
+                "WR1", "WR2", "WR3", "WR4",
+                "QB1", "QB2",
+                "TE1", "TE2",
+            ],
+            "position": [
+                "RB", "RB", "RB", "RB",
+                "WR", "WR", "WR", "WR",
+                "QB", "QB",
+                "TE", "TE",
+            ],
+            "projected_points": [
+                250, 240, 230, 180,
+                245, 235, 220, 210,
+                300, 290,
+                190, 180,
+            ],
+        }
+    )
+
+    settings = {
+        "teams": 2,
+        "lineup": {"QB": 1, "RB": 1, "WR": 1, "TE": 1, "FLEX": 1},
+    }
+
+    result = vorp_engine.calculate_vorp(df, settings)
+
+    rb3 = result[result["player_name_clean"] == "RB3"].iloc[0]
+    wr3 = result[result["player_name_clean"] == "WR3"].iloc[0]
+
+    assert rb3["position_rank"] == 3
+    assert rb3["replacement_points"] == 230
+    assert rb3["vorp"] == 0
+
+    assert wr3["position_rank"] == 3
+    assert wr3["replacement_points"] == 220
+    assert wr3["vorp"] == 0
