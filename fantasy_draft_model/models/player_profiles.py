@@ -12,7 +12,7 @@ from fantasy_draft_model.engines.injury_risk import (
 # ============================================================
 
 
-def build_player_profiles():
+def build_player_profiles(league_key):
     """
     Build the complete EdgeIQ player profile table.
 
@@ -22,7 +22,7 @@ def build_player_profiles():
 
     print("\nBuilding EdgeIQ player profiles...")
 
-    df = create_master_player_table()
+    df = create_master_player_table(league_key)
 
     # -----------------------------------------
     # ADD INJURY / DURABILITY SCORES
@@ -155,7 +155,7 @@ def display_player_profile(
 def main():
 
     profiles_df = (
-        build_player_profiles()
+        build_player_profiles("drunk_sundays")
     )
 
 
