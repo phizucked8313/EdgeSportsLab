@@ -122,6 +122,7 @@ def calculate_snake_pick(
 # BUILD KEEPER PICK RESERVATIONS
 # ============================================================
 
+
 def build_keeper_reservations(
     league_name,
     draft_slots,
@@ -229,6 +230,8 @@ def get_team_position_counts(
         "RB": 0,
         "WR": 0,
         "TE": 0,
+        "K": 0,
+        "DEF": 0,
     }
 
     for pick in draft_results:
@@ -569,6 +572,7 @@ def run_mock_draft(
                     team_position_counts,
                     round_number,
                     team_name,
+                    draft_rounds=int(league["draft_rounds"]),
                 )
 
                 
