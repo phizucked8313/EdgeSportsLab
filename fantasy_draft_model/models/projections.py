@@ -562,39 +562,52 @@ def add_calculated_metrics(df):
 # CALCULATE OUR LEAGUE'S 2025 FANTASY POINTS
 # ============================================================
 
-def add_custom_fantasy_scoring(df, league_settings=None):
-    """
-    Calculate fantasy scoring from EdgeIQ league settings.
-    """
+def add_custom_fantasy_scoring(df, league_settings):
+    """Calculate exact offensive fantasy scoring from resolved league settings."""
 
     df = df.copy()
-    settings = league_settings or load_league_settings()
-    scoring = settings["scoring"]
+    scoring = league_settings["scoring"]["offense"]
+
+    def stat(column):
+        return pd.to_numeric(
+            _series_or_default(df, column, 0),
+            errors="coerce",
+        ).fillna(0)
 
     df["custom_fantasy_points"] = (
-        # PPR
-        df["receptions"] * scoring["reception"]
-
-        # Yardage
-        + df["rushing_yards"] * scoring["rushing_yard"]
-        + df["receiving_yards"] * scoring["receiving_yard"]
-        + df["passing_yards"] * scoring["passing_yard"]
-
-        # Touchdowns
-        + df["rushing_tds"] * scoring["rushing_td"]
-        + df["receiving_tds"] * scoring["receiving_td"]
-        + df["passing_tds"] * scoring["passing_td"]
-
-        # Big-game bonuses
-        + df["games_300_pass"] * scoring["bonus_300_passing"]
-        + df["games_100_rush"] * scoring["bonus_100_rushing"]
-        + df["games_100_receive"] * scoring["bonus_100_receiving"]
+        stat("receptions") * scoring["reception"]
+        + stat("rushing_yards") * scoring["rushing_yard"]
+        + stat("receiving_yards") * scoring["receiving_yard"]
+        + stat("passing_yards") * scoring["passing_yard"]
+        + stat("rushing_tds") * scoring["rushing_td"]
+        + stat("receiving_tds") * scoring["receiving_td"]
+        + stat("passing_tds") * scoring["passing_td"]
+        + stat("passing_interceptions") * scoring["passing_interception"]
+        + stat("fumbles_lost") * scoring["fumble_lost"]
+        + stat("two_point_conversions") * scoring["two_point_conversion"]
+        + stat("return_tds") * scoring["return_td"]
+        + stat("offensive_fumble_return_tds") * scoring["offensive_fumble_return_td"]
+        + stat("games_300_pass") * scoring["bonus_300_passing"]
+        + stat("games_400_pass") * scoring["bonus_400_passing"]
+        + stat("games_500_pass") * scoring["bonus_500_passing"]
+        + stat("games_100_rush") * scoring["bonus_100_rushing"]
+        + stat("games_200_rush") * scoring["bonus_200_rushing"]
+        + stat("games_300_rush") * scoring["bonus_300_rushing"]
+        + stat("games_100_receive") * scoring["bonus_100_receiving"]
+        + stat("games_200_receive") * scoring["bonus_200_receiving"]
+        + stat("games_300_receive") * scoring["bonus_300_receiving"]
+        + stat("plays_40_pass_completion") * scoring["play_40_completion"]
+        + stat("plays_40_pass_td") * scoring["play_40_passing_td"]
+        + stat("plays_40_rush") * scoring["play_40_run"]
+        + stat("plays_40_rush_td") * scoring["play_40_rushing_td"]
+        + stat("plays_40_reception") * scoring["play_40_reception"]
+        + stat("plays_40_reception_td") * scoring["play_40_receiving_td"]
     )
 
+    games_played = stat("games_played")
     df["custom_points_per_game"] = np.where(
-        df["games_played"] > 0,
-        df["custom_fantasy_points"]
-        / df["games_played"],
+        games_played > 0,
+        df["custom_fantasy_points"] / games_played,
         0,
     )
 
