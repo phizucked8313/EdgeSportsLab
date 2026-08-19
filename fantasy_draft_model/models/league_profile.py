@@ -13,6 +13,7 @@ LEAGUES = {
             "rookie": 3,
         },
         "team_count": 12,
+        "draft_rounds": 15,
         "roster_size": 15,
         "starters": {
             "QB": 1,
@@ -46,6 +47,7 @@ LEAGUES = {
             "standard": 16,
         },
         "team_count": 12,
+        "draft_rounds": 16,
         "roster_size": 15,
         "starters": {
             "QB": 1,
