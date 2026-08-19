@@ -1,7 +1,12 @@
+import inspect
+
 import pandas as pd
 import pytest
 
 from fantasy_draft_model.config import load_league_settings
+from fantasy_draft_model.engines import projection_engine
+from fantasy_draft_model import rankings
+from fantasy_draft_model.models import player_profiles
 from fantasy_draft_model.models.projections import (
     add_bonus_flags,
     add_custom_fantasy_scoring,
@@ -185,3 +190,71 @@ def test_turnovers_conversions_and_return_scores_use_yahoo_values():
 
     # -1 interception -2 fumble +2 conversion +6 return TD +6 fumble return TD.
     assert result.loc[0, "custom_fantasy_points"] == 11.0
+
+
+def test_scoring_sensitive_public_functions_require_league_key_parameter():
+    functions = [
+        player_profiles.build_player_profiles,
+        projection_engine.build_2026_projections,
+        rankings.build_draft_rankings,
+    ]
+
+    for function in functions:
+        parameters = inspect.signature(function).parameters
+        assert "league_key" in parameters
+        assert parameters["league_key"].default is inspect.Parameter.empty
+
+
+def test_player_profiles_forwards_explicit_league_key(monkeypatch):
+    calls = []
+
+    def fake_create_master_player_table(league_key):
+        calls.append(league_key)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(
+        player_profiles,
+        "create_master_player_table",
+        fake_create_master_player_table,
+    )
+
+    result = player_profiles.build_player_profiles("somewhat_related")
+
+    assert calls == ["somewhat_related"]
+    assert result.empty
+
+
+def test_projection_pipeline_forwards_explicit_league_key_to_profiles(monkeypatch):
+    class ReachedProfiles(Exception):
+        pass
+
+    def fake_build_player_profiles(league_key):
+        assert league_key == "somewhat_related"
+        raise ReachedProfiles
+
+    monkeypatch.setattr(
+        projection_engine,
+        "build_player_profiles",
+        fake_build_player_profiles,
+    )
+
+    with pytest.raises(ReachedProfiles):
+        projection_engine.build_2026_projections("somewhat_related")
+
+
+def test_rankings_forwards_explicit_league_key_to_projection_pipeline(monkeypatch):
+    class ReachedProjectionPipeline(Exception):
+        pass
+
+    def fake_build_2026_projections(league_key):
+        assert league_key == "drunk_sundays"
+        raise ReachedProjectionPipeline
+
+    monkeypatch.setattr(
+        rankings,
+        "build_2026_projections",
+        fake_build_2026_projections,
+    )
+
+    with pytest.raises(ReachedProjectionPipeline):
+        rankings.build_draft_rankings("drunk_sundays")
