@@ -10,14 +10,9 @@ from fantasy_draft_model.integrations.long_play_loader import (
 from fantasy_draft_model.integrations.roster_loader import prepare_fantasy_rosters
 
 
-
-
-
-
 # ============================================================
 # EDGEIQ MASTER PLAYER TABLE
 # ============================================================
-
 
 FANTASY_POSITIONS = [
     "QB",
@@ -110,20 +105,17 @@ def prepare_weekly_data():
 
     df = load_weekly_player_stats()
 
-    # Regular season only
     if "season_type" in df.columns:
         df = df[
             df["season_type"] == "REG"
         ].copy()
 
-    # Fantasy positions only
     df = df[
         df["position"].isin(
             FANTASY_POSITIONS
         )
     ].copy()
 
-    # Use full display name
     df["player_name_clean"] = (
         df["player_display_name"]
         .fillna(
@@ -178,6 +170,7 @@ def add_bonus_flags(df):
 
     return df
 
+
 # ============================================================
 # AGGREGATE TO ONE PLAYER
 # ============================================================
@@ -205,145 +198,34 @@ def build_master_player_table():
             as_index=False,
         )
         .agg(
-            team=(
-                "team",
-                "last",
-            ),
-
-            games_played=(
-                "week",
-                "count",
-            ),
-
-            completions=(
-                "completions",
-                "sum",
-            ),
-
-            attempts=(
-                "attempts",
-                "sum",
-            ),
-
-            passing_yards=(
-                "passing_yards",
-                "sum",
-            ),
-
-            passing_tds=(
-                "passing_tds",
-                "sum",
-            ),
-
-            passing_interceptions=(
-                "passing_interceptions",
-                "sum",
-            ),
-
-            carries=(
-                "carries",
-                "sum",
-            ),
-
-            rushing_yards=(
-                "rushing_yards",
-                "sum",
-            ),
-
-            rushing_tds=(
-                "rushing_tds",
-                "sum",
-            ),
-
-            receptions=(
-                "receptions",
-                "sum",
-            ),
-
-            targets=(
-                "targets",
-                "sum",
-            ),
-
-            receiving_yards=(
-                "receiving_yards",
-                "sum",
-            ),
-
-            receiving_tds=(
-                "receiving_tds",
-                "sum",
-            ),
-
-            receiving_air_yards=(
-                "receiving_air_yards",
-                "sum",
-            ),
-
-            target_share=(
-                "target_share",
-                "mean",
-            ),
-
-            air_yards_share=(
-                "air_yards_share",
-                "mean",
-            ),
-
-            wopr=(
-                "wopr",
-                "mean",
-            ),
-
-            actual_ppr_points=(
-                "fantasy_points_ppr",
-                "sum",
-            ),
-
-            games_300_pass=(
-                "game_300_pass",
-                "sum",
-            ),
-
-            games_400_pass=(
-                "game_400_pass",
-                "sum",
-            ),
-
-            games_500_pass=(
-                "game_500_pass",
-                "sum",
-            ),
-
-            games_100_rush=(
-                "game_100_rush",
-                "sum",
-            ),
-
-            games_200_rush=(
-                "game_200_rush",
-                "sum",
-            ),
-
-            games_300_rush=(
-                "game_300_rush",
-                "sum",
-            ),
-
-            games_100_receive=(
-                "game_100_receive",
-                "sum",
-            ),
-
-            games_200_receive=(
-                "game_200_receive",
-                "sum",
-            ),
-
-            games_300_receive=(
-                "game_300_receive",
-                "sum",
-            ),
+            team=("team", "last"),
+            games_played=("week", "count"),
+            completions=("completions", "sum"),
+            attempts=("attempts", "sum"),
+            passing_yards=("passing_yards", "sum"),
+            passing_tds=("passing_tds", "sum"),
+            passing_interceptions=("passing_interceptions", "sum"),
+            carries=("carries", "sum"),
+            rushing_yards=("rushing_yards", "sum"),
+            rushing_tds=("rushing_tds", "sum"),
+            receptions=("receptions", "sum"),
+            targets=("targets", "sum"),
+            receiving_yards=("receiving_yards", "sum"),
+            receiving_tds=("receiving_tds", "sum"),
+            receiving_air_yards=("receiving_air_yards", "sum"),
+            target_share=("target_share", "mean"),
+            air_yards_share=("air_yards_share", "mean"),
+            wopr=("wopr", "mean"),
+            actual_ppr_points=("fantasy_points_ppr", "sum"),
+            games_300_pass=("game_300_pass", "sum"),
+            games_400_pass=("game_400_pass", "sum"),
+            games_500_pass=("game_500_pass", "sum"),
+            games_100_rush=("game_100_rush", "sum"),
+            games_200_rush=("game_200_rush", "sum"),
+            games_300_rush=("game_300_rush", "sum"),
+            games_100_receive=("game_100_receive", "sum"),
+            games_200_receive=("game_200_receive", "sum"),
+            games_300_receive=("game_300_receive", "sum"),
         )
     )
 
@@ -390,7 +272,6 @@ def merge_current_roster_identity(historical_df, roster_df):
         .astype(bool)
     )
 
-    # Current roster identity is authoritative.
     merged_df["player_name_clean"] = (
         merged_df["roster_player_name"]
         .fillna(merged_df["player_name_clean"])
@@ -406,8 +287,6 @@ def merge_current_roster_identity(historical_df, roster_df):
         .fillna(merged_df["position"])
     )
 
-    # New players/rookies have no 2025 production.
-    # Fill numeric historical fields with zero.
     identity_columns = {
         "player_id",
         "player_name_clean",
@@ -432,7 +311,6 @@ def merge_current_roster_identity(historical_df, roster_df):
         .fillna(0)
     )
 
-    # Remove temporary merge fields.
     merged_df = merged_df.drop(
         columns=[
             "roster_player_name",
@@ -447,16 +325,9 @@ def merge_current_roster_identity(historical_df, roster_df):
 def add_current_roster_identity(df):
     """
     Merge 2025 historical production with the current 2026 roster.
-
-    Veterans keep their 2025 stats but receive current 2026
-    team/position information.
-
-    2026 players without 2025 stats are added to the player pool
-    with zero historical production so rookies are not excluded.
     """
 
     historical_df = df.copy()
-
     roster_df = prepare_fantasy_rosters().copy()
 
     roster_df = roster_df.rename(
@@ -489,8 +360,6 @@ def add_current_roster_identity(df):
     )
 
 
-
-
 # ============================================================
 # ADD EDGEIQ CALCULATED METRICS
 # ============================================================
@@ -515,43 +384,37 @@ def add_calculated_metrics(df):
 
     df["catch_rate"] = np.where(
         df["targets"] > 0,
-        df["receptions"]
-        / df["targets"],
+        df["receptions"] / df["targets"],
         0,
     )
 
     df["yards_per_target"] = np.where(
         df["targets"] > 0,
-        df["receiving_yards"]
-        / df["targets"],
+        df["receiving_yards"] / df["targets"],
         0,
     )
 
     df["yards_per_carry"] = np.where(
         df["carries"] > 0,
-        df["rushing_yards"]
-        / df["carries"],
+        df["rushing_yards"] / df["carries"],
         0,
     )
 
     df["yards_per_reception"] = np.where(
         df["receptions"] > 0,
-        df["receiving_yards"]
-        / df["receptions"],
+        df["receiving_yards"] / df["receptions"],
         0,
     )
 
     df["air_yards_per_target"] = np.where(
         df["targets"] > 0,
-        df["receiving_air_yards"]
-        / df["targets"],
+        df["receiving_air_yards"] / df["targets"],
         0,
     )
 
     df["ppr_points_per_game"] = np.where(
         df["games_played"] > 0,
-        df["actual_ppr_points"]
-        / df["games_played"],
+        df["actual_ppr_points"] / df["games_played"],
         0,
     )
 
@@ -618,7 +481,8 @@ def add_custom_fantasy_scoring(df, league_settings):
 # CREATE MASTER TABLE
 # ============================================================
 
-def create_master_player_table():
+def create_master_player_table(league_key):
+    league_settings = load_league_settings(league_key)
 
     df = build_master_player_table()
 
@@ -635,7 +499,8 @@ def create_master_player_table():
     )
 
     df = add_custom_fantasy_scoring(
-        df
+        df,
+        league_settings,
     )
 
     df = df.sort_values(
@@ -648,30 +513,16 @@ def create_master_player_table():
     return df
 
 
-
-
-
 # ============================================================
 # TEST
 # ============================================================
 
 def main():
+    master_df = create_master_player_table("drunk_sundays")
 
-    master_df = (
-        create_master_player_table()
-    )
-
-    print(
-        "\n=========================================="
-    )
-
-    print(
-        "EDGEIQ MASTER PLAYER TABLE"
-    )
-
-    print(
-        "==========================================\n"
-    )
+    print("\n==========================================")
+    print("EDGEIQ MASTER PLAYER TABLE")
+    print("==========================================\n")
 
     display_columns = [
         "player_name_clean",
@@ -694,20 +545,13 @@ def main():
     ]
 
     print(
-        master_df[
-            display_columns
-        ]
+        master_df[display_columns]
         .head(50)
         .round(2)
-        .to_string(
-            index=False
-        )
+        .to_string(index=False)
     )
 
-    print(
-        f"\nTotal fantasy players: "
-        f"{len(master_df):,}"
-    )
+    print(f"\nTotal fantasy players: {len(master_df):,}")
 
 
 if __name__ == "__main__":
