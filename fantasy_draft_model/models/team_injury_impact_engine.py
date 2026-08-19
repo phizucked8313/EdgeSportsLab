@@ -3,14 +3,7 @@ import pandas as pd
 from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
 
 
-# ============================================================
-# EDGEIQ TEAM INJURY IMPACT ENGINE
-# ============================================================
-
-# Base impact by position group.
-# These are Version 1 modeling weights and can be tuned later.
 POSITION_IMPACT = {
-    # Offense
     "QB": 10.0,
     "RB": 6.0,
     "WR": 5.0,
@@ -24,8 +17,6 @@ POSITION_IMPACT = {
     "T": 7.0,
     "OL": 6.0,
     "FB": 2.0,
-
-    # Defense
     "DE": 6.0,
     "EDGE": 7.0,
     "DT": 5.0,
@@ -37,8 +28,6 @@ POSITION_IMPACT = {
     "CB": 6.0,
     "S": 4.5,
     "DB": 5.0,
-
-    # Special teams
     "K": 1.5,
     "P": 1.0,
 }
@@ -72,17 +61,30 @@ ROLE_MULTIPLIER = {
 def normalize_status(value):
     if pd.isna(value):
         return ""
-
     return str(value).strip()
+
+
+def _normalize_name(value):
+    if pd.isna(value):
+        return ""
+    return "".join(
+        character.lower()
+        for character in str(value)
+        if character.isalnum()
+    )
+
+
+def _identity_key(team, player_name, position):
+    return (
+        str(team).upper().strip(),
+        _normalize_name(player_name),
+        str(position).upper().strip(),
+    )
 
 
 def get_position_impact(position):
     position = str(position).upper().strip()
-
-    return POSITION_IMPACT.get(
-        position,
-        3.0
-    )
+    return POSITION_IMPACT.get(position, 3.0)
 
 
 def get_status_multiplier(report_status=None, practice_status=None):
@@ -91,10 +93,8 @@ def get_status_multiplier(report_status=None, practice_status=None):
 
     if report_status in STATUS_MULTIPLIER:
         return STATUS_MULTIPLIER[report_status]
-
     if practice_status in STATUS_MULTIPLIER:
         return STATUS_MULTIPLIER[practice_status]
-
     return 0.25
 
 
@@ -104,90 +104,105 @@ def calculate_player_injury_impact(
     practice_status=None,
     role="STARTER",
 ):
-    """
-    Calculate one player's team-level injury impact.
-
-    Higher score = more damaging to the team.
-    """
-
     base_impact = get_position_impact(position)
-
     status_multiplier = get_status_multiplier(
         report_status,
         practice_status,
     )
-
     role_multiplier = ROLE_MULTIPLIER.get(
         str(role).upper(),
-        0.50
+        0.50,
     )
 
-    impact = (
-        base_impact
-        * status_multiplier
-        * role_multiplier
+    return round(
+        base_impact * status_multiplier * role_multiplier,
+        2,
     )
-
-    return round(impact, 2)
 
 
 def classify_unit(position):
     position = str(position).upper().strip()
 
-    if position in {"QB"}:
+    if position == "QB":
         return "QB"
-
     if position in {"RB", "FB"}:
         return "BACKFIELD"
-
     if position in {"WR", "TE"}:
         return "PASS_CATCHERS"
-
-    if position in {
-        "LT", "RT", "LG", "RG", "C",
-        "G", "T", "OL"
-    }:
+    if position in {"LT", "RT", "LG", "RG", "C", "G", "T", "OL"}:
         return "OFFENSIVE_LINE"
-
-    if position in {
-        "DE", "EDGE", "DT", "NT", "DL"
-    }:
+    if position in {"DE", "EDGE", "DT", "NT", "DL"}:
         return "DEFENSIVE_FRONT"
-
     if position in {"LB", "ILB", "OLB"}:
         return "LINEBACKERS"
-
     if position in {"CB", "S", "DB"}:
         return "SECONDARY"
-
     if position in {"K", "P"}:
         return "SPECIAL_TEAMS"
-
     return "OTHER"
 
 
-def add_team_injury_impact(
-    injuries_df,
-    role_column=None,
-):
-    """
-    Add injury impact fields to an injury dataframe.
+def _attach_depth_roles(df, depth_df):
+    result = df.copy()
+    result["edgeiq_role"] = "UNKNOWN"
 
-    Expected useful columns may include:
-    team
-    position
-    report_status
-    practice_status
-    """
+    if "gsis_id" in result.columns and "gsis_id" in depth_df.columns:
+        gsis_lookup = (
+            depth_df[["gsis_id", "edgeiq_role"]]
+            .dropna(subset=["gsis_id"])
+            .drop_duplicates(subset=["gsis_id"])
+            .set_index("gsis_id")["edgeiq_role"]
+            .to_dict()
+        )
+        matched = result["gsis_id"].map(gsis_lookup)
+        result.loc[matched.notna(), "edgeiq_role"] = matched[matched.notna()]
 
+    depth_position_column = None
+    if "pos_abb" in depth_df.columns:
+        depth_position_column = "pos_abb"
+    elif "position" in depth_df.columns:
+        depth_position_column = "position"
+
+    can_fallback = (
+        depth_position_column is not None
+        and {"team", "player_name", "position"}.issubset(result.columns)
+        and {"team", "player_name", "edgeiq_role"}.issubset(depth_df.columns)
+    )
+
+    if can_fallback:
+        fallback_lookup = {}
+        for row in depth_df.itertuples(index=False):
+            key = _identity_key(
+                getattr(row, "team"),
+                getattr(row, "player_name"),
+                getattr(row, depth_position_column),
+            )
+            fallback_lookup.setdefault(key, getattr(row, "edgeiq_role"))
+
+        unknown_mask = result["edgeiq_role"] == "UNKNOWN"
+        fallback_roles = result.loc[unknown_mask].apply(
+            lambda row: fallback_lookup.get(
+                _identity_key(
+                    row["team"],
+                    row["player_name"],
+                    row["position"],
+                ),
+                "UNKNOWN",
+            ),
+            axis=1,
+        )
+        result.loc[unknown_mask, "edgeiq_role"] = fallback_roles
+
+    return result
+
+
+def add_team_injury_impact(injuries_df, role_column=None):
     df = injuries_df.copy()
 
     if "position" not in df.columns:
         df["position"] = "UNKNOWN"
-
     if "report_status" not in df.columns:
         df["report_status"] = ""
-
     if "practice_status" not in df.columns:
         df["practice_status"] = ""
 
@@ -198,38 +213,10 @@ def add_team_injury_impact(
             .astype(str)
             .str.upper()
         )
-
     else:
-        # Load current depth charts and connect each injured player
-        # to their real STARTER / BACKUP / DEPTH / DEEP_DEPTH role.
-        depth_df = load_depth_charts()
+        df = _attach_depth_roles(df, load_depth_charts())
 
-        # Build lookup using GSIS ID when available.
-        if "gsis_id" in df.columns and "gsis_id" in depth_df.columns:
-            role_lookup = (
-                depth_df[
-                    ["gsis_id", "edgeiq_role"]
-                ]
-                .dropna(subset=["gsis_id"])
-                .drop_duplicates(subset=["gsis_id"])
-                .set_index("gsis_id")["edgeiq_role"]
-                .to_dict()
-            )
-
-            df["edgeiq_role"] = (
-                df["gsis_id"]
-                .map(role_lookup)
-                .fillna("UNKNOWN")
-            )
-
-        else:
-            df["edgeiq_role"] = "UNKNOWN"
-
-    df["injury_unit"] = (
-        df["position"]
-        .apply(classify_unit)
-    )
-
+    df["injury_unit"] = df["position"].apply(classify_unit)
     df["player_injury_impact"] = df.apply(
         lambda row: calculate_player_injury_impact(
             position=row["position"],
@@ -244,73 +231,32 @@ def add_team_injury_impact(
 
 
 def build_team_injury_summary(injuries_df):
-    """
-    Aggregate player injuries into team/unit impact scores.
-    """
-
     df = add_team_injury_impact(injuries_df)
 
     if "team" not in df.columns:
-        raise ValueError(
-            "injuries_df must contain a 'team' column."
-        )
+        raise ValueError("injuries_df must contain a 'team' column.")
 
     summary = (
-        df.groupby(
-            ["team", "injury_unit"],
-            as_index=False
-        )
+        df.groupby(["team", "injury_unit"], as_index=False)
         .agg(
-            injured_players=(
-                "player_injury_impact",
-                "count"
-            ),
-            unit_injury_impact=(
-                "player_injury_impact",
-                "sum"
-            ),
+            injured_players=("player_injury_impact", "count"),
+            unit_injury_impact=("player_injury_impact", "sum"),
         )
     )
-
-    summary["unit_injury_impact"] = (
-        summary["unit_injury_impact"]
-        .round(2)
-    )
-
+    summary["unit_injury_impact"] = summary["unit_injury_impact"].round(2)
     return summary
 
 
 def build_team_total_impact(injuries_df):
-    """
-    Create one total injury-impact score per team.
-    """
-
-    unit_summary = build_team_injury_summary(
-        injuries_df
-    )
+    unit_summary = build_team_injury_summary(injuries_df)
 
     team_summary = (
-        unit_summary
-        .groupby(
-            "team",
-            as_index=False
-        )
-        .agg(
-            total_injury_impact=(
-                "unit_injury_impact",
-                "sum"
-            )
-        )
-        .sort_values(
-            "total_injury_impact",
-            ascending=False
-        )
+        unit_summary.groupby("team", as_index=False)
+        .agg(total_injury_impact=("unit_injury_impact", "sum"))
+        .sort_values("total_injury_impact", ascending=False)
         .reset_index(drop=True)
     )
-
-    team_summary["total_injury_impact"] = (
-        team_summary["total_injury_impact"]
-        .round(2)
-    )
-
+    team_summary["total_injury_impact"] = team_summary[
+        "total_injury_impact"
+    ].round(2)
     return team_summary
