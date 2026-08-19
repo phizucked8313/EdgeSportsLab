@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 
-from fantasy_draft_model.engines.injury_risk import add_injury_scores
 from fantasy_draft_model.models.player_profiles import build_player_profiles
 from fantasy_draft_model.engines.edgescore_engine import calculate_edgescore
 from fantasy_draft_model.engines.vorp_engine import calculate_vorp
@@ -14,32 +13,21 @@ from fantasy_draft_model.engines.injury_risk import (
     injury_risk_label,
 )
 from fantasy_draft_model.engines.tier_engine import calculate_tiers
-
 from fantasy_draft_model.integrations.current_injury_normalizer import (
     load_normalized_current_injuries,
 )
-
 from fantasy_draft_model.models.team_injury_impact_engine import (
     add_team_injury_impact,
 )
-
 from fantasy_draft_model.engines.injury_ripple_engine import (
     build_team_offensive_ripple,
     add_fantasy_ripple_scores,
     add_projection_multipliers,
 )
-
 from fantasy_draft_model.engines.talent_engine import (
     add_rookie_projection_components,
     add_rookie_baseline_projection,
 )
-
-
-
-
-
-
-
 
 
 # ============================================================
@@ -48,773 +36,225 @@ from fantasy_draft_model.engines.talent_engine import (
 
 PROJECTED_GAMES = 17
 
-
-# ============================================================
-# MANUAL PLAYER ADJUSTMENTS
-# ============================================================
-#
-# 1.00 = no change
-# 1.10 = +10%
-# 0.90 = -10%
-#
-# We will eventually fill these automatically using:
-# coaching changes, QB changes, injuries, vacated targets, etc.
-
 MANUAL_PLAYER_ADJUSTMENTS = {
-
-    # Example:
     # "Player Name": 1.05,
-
 }
-
-
-# ============================================================
-# WR TARGET REGRESSION
-# ============================================================
-#
-# This gives us the manual control we discussed earlier.
-#
-# 1.10 = project 10% more WR opportunity
-# 0.90 = project 10% less WR opportunity
 
 TARGET_REGRESSION = {
-
-    # Example:
     # "Ja'Marr Chase": 1.05,
-
 }
 
 
-# ============================================================
-# SAFE PERCENTILE SCORE
-# ============================================================
-
-def percentile_score(
-    df,
-    column,
-    position
-):
-    """
-    Convert a stat into a 0-100 score
-    compared only against players at
-    the same position.
-    """
-
-    mask = (
-        df["position"] == position
-    )
-
-    scores = pd.Series(
-        0.0,
-        index=df.index
-    )
+def percentile_score(df, column, position):
+    """Convert a stat into a 0-100 within-position percentile score."""
+    mask = df["position"] == position
+    scores = pd.Series(0.0, index=df.index)
 
     if column not in df.columns:
         return scores
 
     scores.loc[mask] = (
-        df.loc[
-            mask,
-            column
-        ]
+        df.loc[mask, column]
         .fillna(0)
-        .rank(
-            pct=True
-        )
+        .rank(pct=True)
         * 100
     )
-
     return scores
 
 
-# ============================================================
-# PER GAME METRICS
-# ============================================================
-
 def add_per_game_metrics(df):
-
     df = df.copy()
+    games = df["games_played"].replace(0, np.nan)
 
-    games = (
-        df["games_played"]
-        .replace(
-            0,
-            np.nan
-        )
-    )
-
-    df["targets_per_game"] = (
-        df["targets"]
-        / games
-    ).fillna(0)
-
-    df["carries_per_game"] = (
-        df["carries"]
-        / games
-    ).fillna(0)
-
-    df["pass_attempts_per_game"] = (
-        df["attempts"]
-        / games
-    ).fillna(0)
-
+    df["targets_per_game"] = (df["targets"] / games).fillna(0)
+    df["carries_per_game"] = (df["carries"] / games).fillna(0)
+    df["pass_attempts_per_game"] = (df["attempts"] / games).fillna(0)
     return df
 
-
-# ============================================================
-# OPPORTUNITY SCORE
-# ============================================================
 
 def calculate_opportunity_score(df):
-    """
-    Create a position-specific opportunity score.
-
-    QB:
-        pass attempts + rushing volume
-
-    RB:
-        carries + targets + target share
-
-    WR / TE:
-        targets + target share + air yards share + WOPR
-    """
-
+    """Create a position-specific opportunity score."""
     df = df.copy()
-
     df["opportunity_score"] = 0.0
 
-
-    # --------------------------------------------------------
-    # QB
-    # --------------------------------------------------------
-
-    qb_pass = percentile_score(
-        df,
-        "pass_attempts_per_game",
-        "QB"
-    )
-
-    qb_rush = percentile_score(
-        df,
-        "carries_per_game",
-        "QB"
-    )
-
-    qb_mask = (
-        df["position"] == "QB"
-    )
-
-    df.loc[
-        qb_mask,
-        "opportunity_score"
-    ] = (
-
+    qb_pass = percentile_score(df, "pass_attempts_per_game", "QB")
+    qb_rush = percentile_score(df, "carries_per_game", "QB")
+    qb_mask = df["position"] == "QB"
+    df.loc[qb_mask, "opportunity_score"] = (
         qb_pass[qb_mask] * 0.70
-
-        +
-
-        qb_rush[qb_mask] * 0.30
+        + qb_rush[qb_mask] * 0.30
     )
 
-
-    # --------------------------------------------------------
-    # RB
-    # --------------------------------------------------------
-
-    rb_carries = percentile_score(
-        df,
-        "carries_per_game",
-        "RB"
-    )
-
-    rb_targets = percentile_score(
-        df,
-        "targets_per_game",
-        "RB"
-    )
-
-    rb_share = percentile_score(
-        df,
-        "target_share",
-        "RB"
-    )
-
-    rb_mask = (
-        df["position"] == "RB"
-    )
-
-    df.loc[
-        rb_mask,
-        "opportunity_score"
-    ] = (
-
+    rb_carries = percentile_score(df, "carries_per_game", "RB")
+    rb_targets = percentile_score(df, "targets_per_game", "RB")
+    rb_share = percentile_score(df, "target_share", "RB")
+    rb_mask = df["position"] == "RB"
+    df.loc[rb_mask, "opportunity_score"] = (
         rb_carries[rb_mask] * 0.60
-
-        +
-
-        rb_targets[rb_mask] * 0.25
-
-        +
-
-        rb_share[rb_mask] * 0.15
+        + rb_targets[rb_mask] * 0.25
+        + rb_share[rb_mask] * 0.15
     )
 
-
-    # --------------------------------------------------------
-    # WR
-    # --------------------------------------------------------
-
-    wr_targets = percentile_score(
-        df,
-        "targets_per_game",
-        "WR"
-    )
-
-    wr_share = percentile_score(
-        df,
-        "target_share",
-        "WR"
-    )
-
-    wr_air_share = percentile_score(
-        df,
-        "air_yards_share",
-        "WR"
-    )
-
-    wr_wopr = percentile_score(
-        df,
-        "wopr",
-        "WR"
-    )
-
-    wr_mask = (
-        df["position"] == "WR"
-    )
-
-    df.loc[
-        wr_mask,
-        "opportunity_score"
-    ] = (
-
+    wr_targets = percentile_score(df, "targets_per_game", "WR")
+    wr_share = percentile_score(df, "target_share", "WR")
+    wr_air_share = percentile_score(df, "air_yards_share", "WR")
+    wr_wopr = percentile_score(df, "wopr", "WR")
+    wr_mask = df["position"] == "WR"
+    df.loc[wr_mask, "opportunity_score"] = (
         wr_targets[wr_mask] * 0.30
-
-        +
-
-        wr_share[wr_mask] * 0.30
-
-        +
-
-        wr_air_share[wr_mask] * 0.20
-
-        +
-
-        wr_wopr[wr_mask] * 0.20
+        + wr_share[wr_mask] * 0.30
+        + wr_air_share[wr_mask] * 0.20
+        + wr_wopr[wr_mask] * 0.20
     )
 
-
-    # --------------------------------------------------------
-    # TE
-    # --------------------------------------------------------
-
-    te_targets = percentile_score(
-        df,
-        "targets_per_game",
-        "TE"
-    )
-
-    te_share = percentile_score(
-        df,
-        "target_share",
-        "TE"
-    )
-
-    te_air_share = percentile_score(
-        df,
-        "air_yards_share",
-        "TE"
-    )
-
-    te_wopr = percentile_score(
-        df,
-        "wopr",
-        "TE"
-    )
-
-    te_mask = (
-        df["position"] == "TE"
-    )
-
-    df.loc[
-        te_mask,
-        "opportunity_score"
-    ] = (
-
+    te_targets = percentile_score(df, "targets_per_game", "TE")
+    te_share = percentile_score(df, "target_share", "TE")
+    te_air_share = percentile_score(df, "air_yards_share", "TE")
+    te_wopr = percentile_score(df, "wopr", "TE")
+    te_mask = df["position"] == "TE"
+    df.loc[te_mask, "opportunity_score"] = (
         te_targets[te_mask] * 0.35
-
-        +
-
-        te_share[te_mask] * 0.30
-
-        +
-
-        te_air_share[te_mask] * 0.15
-
-        +
-
-        te_wopr[te_mask] * 0.20
+        + te_share[te_mask] * 0.30
+        + te_air_share[te_mask] * 0.15
+        + te_wopr[te_mask] * 0.20
     )
-
 
     return df
 
-
-# ============================================================
-# TARGET REGRESSION FACTOR
-# ============================================================
 
 def add_target_regression(df):
-
     df = df.copy()
+    df["target_regression_factor"] = 1.00
 
-    df[
-        "target_regression_factor"
-    ] = 1.00
-
-
-    for (
-        player_name,
-        factor
-    ) in TARGET_REGRESSION.items():
-
+    for player_name, factor in TARGET_REGRESSION.items():
         mask = (
-
-            (
-                df["player_name_clean"]
-                == player_name
-            )
-
-            &
-
-            (
-                df["position"]
-                == "WR"
-            )
+            (df["player_name_clean"] == player_name)
+            & (df["position"] == "WR")
         )
-
-        df.loc[
-            mask,
-            "target_regression_factor"
-        ] = factor
-
+        df.loc[mask, "target_regression_factor"] = factor
 
     return df
 
-
-# ============================================================
-# MANUAL PLAYER ADJUSTMENTS
-# ============================================================
 
 def add_manual_adjustments(df):
-
     df = df.copy()
+    df["manual_adjustment"] = 1.00
 
-    df[
-        "manual_adjustment"
-    ] = 1.00
-
-
-    for (
-        player_name,
-        factor
-    ) in MANUAL_PLAYER_ADJUSTMENTS.items():
-
+    for player_name, factor in MANUAL_PLAYER_ADJUSTMENTS.items():
         df.loc[
-            df["player_name_clean"]
-            == player_name,
-            "manual_adjustment"
+            df["player_name_clean"] == player_name,
+            "manual_adjustment",
         ] = factor
-
 
     return df
 
 
-# ============================================================
-# CREATE 2026 PROJECTION
-# ============================================================
-
 def calculate_projection(df):
-
     df = df.copy()
 
-
-    # --------------------------------------------------------
-    # 17-GAME BASELINE
-    # --------------------------------------------------------
-
     df["baseline_projection"] = (
-
-        df["custom_points_per_game"]
-
-        *
-
-        PROJECTED_GAMES
+        df["custom_points_per_game"] * PROJECTED_GAMES
     )
-
-    # --------------------------------------------
-    # ROOKIE BASELINE OVERRIDE
-    # --------------------------------------------
 
     if (
         "is_rookie" in df.columns
         and "rookie_baseline_projection" in df.columns
     ):
         rookie_mask = df["is_rookie"] == True
-
-        df.loc[
+        df.loc[rookie_mask, "baseline_projection"] = df.loc[
             rookie_mask,
-            "baseline_projection"
-        ] = df.loc[
-            rookie_mask,
-            "rookie_baseline_projection"
+            "rookie_baseline_projection",
         ]
 
-
-
-
-    # --------------------------------------------------------
-    # OPPORTUNITY ADJUSTMENT
-    # --------------------------------------------------------
-    #
-    # Opportunity can move a projection
-    # between roughly -10% and +10%.
-
-    df[
-        "opportunity_multiplier"
-    ] = (
-
-        0.90
-
-        +
-
-        (
-            df["opportunity_score"]
-            / 100
-        )
-
-        * 0.20
+    df["opportunity_multiplier"] = (
+        0.90 + (df["opportunity_score"] / 100) * 0.20
     )
 
-
-    # --------------------------------------------------------
-    # TARGET REGRESSION
-    # --------------------------------------------------------
-    #
-    # Target regression matters most for WRs.
-    #
-    # We use only 40% of the manual target change
-    # so a 20% target increase does not create an
-    # unrealistic 20% fantasy point increase.
-
-    df[
-        "target_multiplier"
-    ] = 1.00
-
-
-    wr_mask = (
-        df["position"] == "WR"
-    )
-
-
-    df.loc[
-        wr_mask,
-        "target_multiplier"
-    ] = (
-
+    df["target_multiplier"] = 1.00
+    wr_mask = df["position"] == "WR"
+    df.loc[wr_mask, "target_multiplier"] = (
         1
-
-        +
-
-        (
-
-            df.loc[
-                wr_mask,
-                "target_regression_factor"
-            ]
-
-            - 1
-
-        )
-
-        * 0.40
+        + (
+            df.loc[wr_mask, "target_regression_factor"] - 1
+        ) * 0.40
     )
 
-
-    # --------------------------------------------------------
-    # INJURY ADJUSTMENT
-    # --------------------------------------------------------
-    #
-    # Version 1:
-    # Injury risk can reduce projection by
-    # a maximum of 10%.
-    #
-    # We do NOT want injury risk completely
-    # destroying a player's projection.
-
-    df[
-        "injury_multiplier"
-    ] = (
-
-        1
-
-        -
-
-        (
-            df["injury_risk_score"]
-            / 100
-        )
-
-        * 0.10
+    df["injury_multiplier"] = (
+        1 - (df["injury_risk_score"] / 100) * 0.10
     )
 
-
-    # --------------------------------------------------------
-    # FINAL PROJECTION
-    # --------------------------------------------------------
-
-    df[
-        "projected_points"
-    ] = (
-
+    df["projected_points"] = (
         df["baseline_projection"]
-
-        *
-
-        df["opportunity_multiplier"]
-
-        *
-
-        df["target_multiplier"]
-
-        *
-
-        df["injury_multiplier"]
-
-        *
-
-        df["manual_adjustment"]
+        * df["opportunity_multiplier"]
+        * df["target_multiplier"]
+        * df["injury_multiplier"]
+        * df["manual_adjustment"]
     )
-
 
     return df
 
-
-# ============================================================
-# FLOOR AND CEILING
-# ============================================================
 
 def calculate_floor_ceiling(df):
-    """
-    Version 1 floor / ceiling model.
-
-    Players with higher injury risk get
-    a slightly wider range.
-    """
-
+    """Calculate projection floor and ceiling with an injury-risk spread."""
     df = df.copy()
-
-
-    risk_range = (
-
-        df["injury_risk_score"]
-        / 100
-        * 0.10
-    )
-
+    risk_range = df["injury_risk_score"] / 100 * 0.10
 
     df["floor_projection"] = (
-
-        df["projected_points"]
-
-        *
-
-        (
-            0.85
-            - risk_range
-        )
+        df["projected_points"] * (0.85 - risk_range)
     )
-
-
     df["ceiling_projection"] = (
-
-        df["projected_points"]
-
-        *
-
-        (
-            1.15
-            + risk_range
-        )
+        df["projected_points"] * (1.15 + risk_range)
     )
-
-
     return df
 
-
-# ============================================================
-# PROJECTION CONFIDENCE
-# ============================================================
 
 def calculate_projection_confidence(df):
-
     df = df.copy()
 
-
-    # Better availability = more confidence
-    injury_penalty = (
-
-        df["injury_risk_score"]
-        * 0.35
-    )
-
-
-    # Small samples = less confidence
+    injury_penalty = df["injury_risk_score"] * 0.35
     sample_penalty = np.where(
-
         df["games_played"] >= 15,
         0,
-
-        np.where(
-
-            df["games_played"] >= 10,
-            7,
-
-            15
-        )
+        np.where(df["games_played"] >= 10, 7, 15),
     )
 
-
-    df[
-        "projection_confidence"
-    ] = (
-
-        100
-
-        - injury_penalty
-
-        - sample_penalty
-    )
-
-
-    df[
-        "projection_confidence"
-    ] = (
-
-        df[
-            "projection_confidence"
-        ]
-
-        .clip(
-            lower=25,
-            upper=99
-        )
-    )
-
+    df["projection_confidence"] = (
+        100 - injury_penalty - sample_penalty
+    ).clip(lower=25, upper=99)
 
     return df
 
 
-# ============================================================
-# COMPLETE EDGEIQ PROJECTIONS
-# ============================================================
+def build_2026_projections(league_key):
+    """Build EdgeIQ projections for one explicitly selected league."""
+    print("\nBuilding EdgeIQ 2026 projections...")
 
-def build_2026_projections():
-
-    print(
-        "\nBuilding EdgeIQ 2026 projections..."
-    )
-
-
-    df = build_player_profiles()
+    df = build_player_profiles(league_key)
 
     if "is_fantasy_draftable" in df.columns:
         df = df[
             df["is_fantasy_draftable"] == True
         ].copy()
 
-    df = add_rookie_projection_components(
-        df
+    df = add_rookie_projection_components(df)
+    df = add_rookie_baseline_projection(df)
+    df = add_per_game_metrics(df)
+    df = add_rushing_usage_scores(df)
+    df = add_qb_contact_exposure(df)
+    df = add_injury_scores(df)
+    df["injury_risk_label"] = df["injury_risk_score"].apply(
+        injury_risk_label
     )
-
-    df = add_rookie_baseline_projection(
-        df
-    )
-
-
-    df = add_per_game_metrics(
-        df
-    )
-
-    df = add_rushing_usage_scores(
-        df  
-    )
-
-    df = add_qb_contact_exposure(
-        df
-    )
-
-    df = add_injury_scores(
-        df  
-    )    
-
-    df["injury_risk_label"] = (
-        df["injury_risk_score"]
-        .apply(
-            injury_risk_label
-        )    
-    )
-
-    df = calculate_opportunity_score(
-        df
-    )
-
-
-    df = add_target_regression(
-        df
-    )
-
-
-    df = add_manual_adjustments(
-        df
-    )
-
-
-    df = calculate_projection(
-        df
-    )
-
-
-    # ========================================================
-    # CURRENT NFL INJURY RIPPLE
-    # ========================================================
+    df = calculate_opportunity_score(df)
+    df = add_target_regression(df)
+    df = add_manual_adjustments(df)
+    df = calculate_projection(df)
 
     current_injuries = load_normalized_current_injuries()
-
-    current_injuries = add_team_injury_impact(
-        current_injuries
-    )
-
-    team_ripple = build_team_offensive_ripple(
-        current_injuries
-    )
-
-    team_ripple = add_fantasy_ripple_scores(
-        team_ripple
-    )
-
-    team_ripple = add_projection_multipliers(
-        team_ripple
-    )
+    current_injuries = add_team_injury_impact(current_injuries)
+    team_ripple = build_team_offensive_ripple(current_injuries)
+    team_ripple = add_fantasy_ripple_scores(team_ripple)
+    team_ripple = add_projection_multipliers(team_ripple)
 
     ripple_columns = [
         "team",
@@ -830,13 +270,7 @@ def build_2026_projections():
         how="left",
     )
 
-    # Keep the original projection so EdgeIQ can show
-    # exactly how much injuries changed the player.
-    df["pre_injury_projected_points"] = (
-        df["projected_points"]
-    )
-
-    # Default = no injury adjustment.
+    df["pre_injury_projected_points"] = df["projected_points"]
     df["injury_ripple_multiplier"] = 1.0
 
     position_multiplier_map = {
@@ -847,164 +281,72 @@ def build_2026_projections():
     }
 
     for position, multiplier_column in position_multiplier_map.items():
-
         mask = df["position"] == position
-
-        df.loc[
-            mask,
-            "injury_ripple_multiplier",
-        ] = (
-            df.loc[
-                mask,
-                multiplier_column,
-            ]
-            .fillna(1.0)
+        df.loc[mask, "injury_ripple_multiplier"] = (
+            df.loc[mask, multiplier_column].fillna(1.0)
         )
 
     df["projected_points"] = (
-        df["projected_points"]
-        * df["injury_ripple_multiplier"]
+        df["projected_points"] * df["injury_ripple_multiplier"]
     )
-
     df["injury_projection_change"] = (
         df["projected_points"]
         - df["pre_injury_projected_points"]
     )
 
+    df = calculate_floor_ceiling(df)
+    df = calculate_projection_confidence(df)
+    df = calculate_edgescore(df)
 
-
-    df = calculate_floor_ceiling(
-        df
-    )
-
-
-    df = calculate_projection_confidence(
-        df
-    )
-
-
-    df = calculate_edgescore(
-        df
-    )
-
-
-    df = calculate_vorp(df) 
+    # Task 5B will pass the resolved league settings into VORP.
+    df = calculate_vorp(df)
 
     df = calculate_tiers(df)
-
-
     df = (
-
-        df.sort_values(
-            "projected_points",
-            ascending=False
-        )
-
-        .reset_index(
-            drop=True
-        )
+        df.sort_values("projected_points", ascending=False)
+        .reset_index(drop=True)
     )
-
-
     return df
 
 
-# ============================================================
-# TEST
-# ============================================================
-
 def main():
-
-    df = build_2026_projections()
-
-
-    print(
-        "\n============================================"
-    )
-
-    print(
-        "EDGEIQ 2026 PROJECTION ENGINE"
-    )
-
-    print(
-        "============================================\n"
-    )
-
+    df = build_2026_projections("drunk_sundays")
 
     columns = [
-
-    
         "overall_rank",
-
         "player_name_clean",
-
         "position",
-
         "position_rank",
-
         "tier",
-
         "tier_size",
-
         "tier_status",
-
         "team",
-
         "games_played",
-
         "custom_points_per_game",
-
         "opportunity_score",
-
         "edgescore",
-
         "vorp",
-
         "durability_score",
-
         "injury_risk_score",
-
         "baseline_projection",
-
         "floor_projection",
-
         "projected_points",
-
         "ceiling_projection",
-
         "projection_confidence",
-
         "rushing_usage_score",
-
         "qb_contact_exposure",
+    ]
 
-
-]
-
-        
-
-
-
+    print("\n============================================")
+    print("EDGEIQ 2026 PROJECTION ENGINE")
+    print("============================================\n")
     print(
-
-        df[
-            columns
-        ]
-
+        df[columns]
         .head(50)
-
         .round(2)
-
-        .to_string(
-            index=False
-        )
+        .to_string(index=False)
     )
-
-
-    print(
-        f"\nProjected players: "
-        f"{len(df):,}"
-    )
+    print(f"\nProjected players: {len(df):,}")
 
 
 if __name__ == "__main__":
