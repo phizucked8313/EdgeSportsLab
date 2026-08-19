@@ -5,6 +5,7 @@ from fantasy_draft_model.integrations.long_play_loader import (
     aggregate_long_play_counts,
     load_2025_long_play_counts,
 )
+from fantasy_draft_model.models import projections
 
 
 def test_40_plus_play_counts_are_attributed_by_player_id():
@@ -65,3 +66,59 @@ def test_load_2025_long_play_counts_uses_regular_season_only(monkeypatch):
     assert "WR_REG" in result.index
     assert "QB_POST" not in result.index
     assert "WR_POST" not in result.index
+
+
+def test_master_player_table_merges_long_play_counts_by_player_id(monkeypatch):
+    weekly = pd.DataFrame(
+        {
+            "player_id": ["P1", "P2"],
+            "player_name_clean": ["Player One", "Player Two"],
+            "position": ["WR", "WR"],
+            "team": ["AAA", "BBB"],
+            "week": [1, 1],
+            "completions": [0, 0],
+            "attempts": [0, 0],
+            "passing_yards": [0, 0],
+            "passing_tds": [0, 0],
+            "passing_interceptions": [0, 0],
+            "carries": [0, 0],
+            "rushing_yards": [0, 0],
+            "rushing_tds": [0, 0],
+            "receptions": [4, 3],
+            "targets": [5, 4],
+            "receiving_yards": [80, 30],
+            "receiving_tds": [1, 0],
+            "receiving_air_yards": [100, 50],
+            "target_share": [0.20, 0.15],
+            "air_yards_share": [0.25, 0.10],
+            "wopr": [0.40, 0.25],
+            "fantasy_points_ppr": [18.0, 6.0],
+        }
+    )
+
+    long_plays = pd.DataFrame(
+        {
+            "player_id": ["P1"],
+            "plays_40_pass_completion": [0],
+            "plays_40_pass_td": [0],
+            "plays_40_rush": [0],
+            "plays_40_rush_td": [0],
+            "plays_40_reception": [2],
+            "plays_40_reception_td": [1],
+        }
+    )
+
+    monkeypatch.setattr(projections, "prepare_weekly_data", lambda: weekly.copy())
+    monkeypatch.setattr(
+        projections,
+        "load_2025_long_play_counts",
+        lambda: long_plays.copy(),
+        raising=False,
+    )
+
+    result = projections.build_master_player_table().set_index("player_id")
+
+    assert result.loc["P1", "plays_40_reception"] == 2
+    assert result.loc["P1", "plays_40_reception_td"] == 1
+    assert result.loc["P2", "plays_40_reception"] == 0
+    assert result.loc["P2", "plays_40_reception_td"] == 0
