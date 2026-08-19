@@ -44,6 +44,30 @@ def _normalize_team_name(value):
     return str(value).strip().lower().replace("’", "'")
 
 
+def _normalize_player_name(value):
+    return str(value).strip().casefold()
+
+
+def _json_safe_value(value):
+    """Convert common dataframe scalar values into JSON-safe Python values."""
+    if value is None:
+        return None
+
+    try:
+        if value != value:
+            return None
+    except (TypeError, ValueError):
+        pass
+
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+
+    return value
+
+
 def _snake_pick_number(round_number, draft_slot, team_count):
     if round_number % 2 == 1:
         pick_in_round = draft_slot
@@ -124,6 +148,86 @@ def advance_keeper_slots(state):
         state["current_pick"] = current_pick + 1
 
     return state
+
+
+def get_pick_context(state):
+    """Return canonical snake-draft metadata for the state's current pick."""
+    league_identifier = state.get("league_key") or state["league_name"]
+    league = resolve_league(league_identifier)
+
+    pick_number = int(state["current_pick"])
+    team_count = int(state["team_count"])
+    round_number = ((pick_number - 1) // team_count) + 1
+    pick_in_round = ((pick_number - 1) % team_count) + 1
+
+    if round_number % 2 == 1:
+        draft_slot = pick_in_round
+    else:
+        draft_slot = team_count - pick_in_round + 1
+
+    draft_order = list(league["draft_order"])
+    fantasy_team = draft_order[draft_slot - 1]
+
+    return {
+        "pick_number": pick_number,
+        "round": round_number,
+        "draft_slot": draft_slot,
+        "fantasy_team": fantasy_team,
+    }
+
+
+def _player_value(player_row, key, default=None):
+    if hasattr(player_row, "get"):
+        return _json_safe_value(player_row.get(key, default))
+    return default
+
+
+def _already_drafted_player_names(state):
+    names = {
+        _normalize_player_name(pick.get("player_name", ""))
+        for pick in state.get("manual_picks", [])
+        if pick.get("player_name")
+    }
+    names.update(
+        _normalize_player_name(reservation.get("player_name", ""))
+        for reservation in state.get("keeper_reservations", [])
+        if reservation.get("player_name")
+    )
+    return names
+
+
+def record_manual_pick(state, player_row, state_path=DEFAULT_STATE_PATH):
+    """Record one manual draft selection, advance the board, and persist it."""
+    advance_keeper_slots(state)
+    context = get_pick_context(state)
+
+    player_name = _player_value(player_row, "player_name_clean")
+    if player_name is None or not str(player_name).strip():
+        raise ValueError("Manual pick is missing player_name_clean")
+
+    player_name = str(player_name).strip()
+    normalized_player_name = _normalize_player_name(player_name)
+
+    if normalized_player_name in _already_drafted_player_names(state):
+        raise ValueError(f"{player_name} is already drafted")
+
+    pick = {
+        "player_name": player_name,
+        "position": _player_value(player_row, "position"),
+        "nfl_team": _player_value(player_row, "team"),
+        "bye_week": _player_value(player_row, "bye_week"),
+        "draft_rank": _player_value(player_row, "draft_rank"),
+        "fantasy_team": context["fantasy_team"],
+        "pick_number": context["pick_number"],
+        "round": context["round"],
+        "draft_slot": context["draft_slot"],
+    }
+
+    state.setdefault("manual_picks", []).append(pick)
+    state["current_pick"] = context["pick_number"] + 1
+    advance_keeper_slots(state)
+    save_war_room_state(state, state_path)
+    return pick
 
 
 def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
