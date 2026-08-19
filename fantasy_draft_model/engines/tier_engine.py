@@ -220,22 +220,18 @@ def add_tier_status(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     def tier_status(row):
-
-        size = row[
-            "tier_size"
-        ]
+        size = row["tier_size"]
 
         if size == 1:
-            return "LAST PLAYER IN TIER"
+            return "ELITE SOLO TIER"
 
         if size == 2:
-            return "TIER ALMOST GONE"
+            return "SMALL TIER"
 
         if size <= 4:
             return "LIMITED TIER"
 
         return "DEPTH AVAILABLE"
-
     df[
         "tier_status"
     ] = (

@@ -15,6 +15,29 @@ from fantasy_draft_model.engines.injury_risk import (
 )
 from fantasy_draft_model.engines.tier_engine import calculate_tiers
 
+from fantasy_draft_model.integrations.injury_history_loader import (
+    load_current_injuries,
+)
+
+from fantasy_draft_model.models.team_injury_impact_engine import (
+    add_team_injury_impact,
+)
+
+from fantasy_draft_model.engines.injury_ripple_engine import (
+    build_team_offensive_ripple,
+    add_fantasy_ripple_scores,
+    add_projection_multipliers,
+)
+
+from fantasy_draft_model.engines.talent_engine import (
+    calculate_rookie_talent_score,
+    add_rookie_baseline_projection,
+)
+
+
+
+
+
 
 
 
@@ -438,6 +461,26 @@ def calculate_projection(df):
         PROJECTED_GAMES
     )
 
+    # --------------------------------------------
+    # ROOKIE BASELINE OVERRIDE
+    # --------------------------------------------
+
+    if (
+        "is_rookie" in df.columns
+        and "rookie_baseline_projection" in df.columns
+    ):
+        rookie_mask = df["is_rookie"] == True
+
+        df.loc[
+            rookie_mask,
+            "baseline_projection"
+        ] = df.loc[
+            rookie_mask,
+            "rookie_baseline_projection"
+        ]
+
+
+
 
     # --------------------------------------------------------
     # OPPORTUNITY ADJUSTMENT
@@ -694,6 +737,14 @@ def build_2026_projections():
 
     df = build_player_profiles()
 
+    df = calculate_rookie_talent_score(
+        df
+    )
+
+    df = add_rookie_baseline_projection(
+        df
+    )
+
 
     df = add_per_game_metrics(
         df
@@ -736,6 +787,85 @@ def build_2026_projections():
     df = calculate_projection(
         df
     )
+
+
+    # ========================================================
+    # CURRENT NFL INJURY RIPPLE
+    # ========================================================
+
+    current_injuries = load_current_injuries()
+
+    current_injuries = add_team_injury_impact(
+        current_injuries
+    )
+
+    team_ripple = build_team_offensive_ripple(
+        current_injuries
+    )
+
+    team_ripple = add_fantasy_ripple_scores(
+        team_ripple
+    )
+
+    team_ripple = add_projection_multipliers(
+        team_ripple
+    )
+
+    ripple_columns = [
+        "team",
+        "qb_ripple_multiplier",
+        "rb_ripple_multiplier",
+        "wr_ripple_multiplier",
+        "te_ripple_multiplier",
+    ]
+
+    df = df.merge(
+        team_ripple[ripple_columns],
+        on="team",
+        how="left",
+    )
+
+    # Keep the original projection so EdgeIQ can show
+    # exactly how much injuries changed the player.
+    df["pre_injury_projected_points"] = (
+        df["projected_points"]
+    )
+
+    # Default = no injury adjustment.
+    df["injury_ripple_multiplier"] = 1.0
+
+    position_multiplier_map = {
+        "QB": "qb_ripple_multiplier",
+        "RB": "rb_ripple_multiplier",
+        "WR": "wr_ripple_multiplier",
+        "TE": "te_ripple_multiplier",
+    }
+
+    for position, multiplier_column in position_multiplier_map.items():
+
+        mask = df["position"] == position
+
+        df.loc[
+            mask,
+            "injury_ripple_multiplier",
+        ] = (
+            df.loc[
+                mask,
+                multiplier_column,
+            ]
+            .fillna(1.0)
+        )
+
+    df["projected_points"] = (
+        df["projected_points"]
+        * df["injury_ripple_multiplier"]
+    )
+
+    df["injury_projection_change"] = (
+        df["projected_points"]
+        - df["pre_injury_projected_points"]
+    )
+
 
 
     df = calculate_floor_ceiling(

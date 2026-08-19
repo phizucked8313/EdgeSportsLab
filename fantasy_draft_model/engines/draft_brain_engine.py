@@ -18,7 +18,17 @@ from fantasy_draft_model.engines.what_if_i_wait_engine import (
 
 
 def clamp(value, low=0, high=100):
+    if pd.isna(value):
+        return low
+
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return low
+
     return max(low, min(high, value))
+
 
 
 def build_draft_brain_for_player(

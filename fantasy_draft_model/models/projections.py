@@ -2,6 +2,11 @@ import numpy as np
 import pandas as pd
 
 from fantasy_draft_model.integrations.data_loader import load_weekly_player_stats
+from fantasy_draft_model.integrations.roster_loader import prepare_fantasy_rosters
+
+
+
+
 
 
 # ============================================================
@@ -228,6 +233,107 @@ def build_master_player_table():
     return master_df
 
 
+def add_current_roster_identity(df):
+    """
+    Merge 2025 historical production with the current 2026 roster.
+
+    Veterans keep their 2025 stats but receive current 2026
+    team/position information.
+
+    2026 players without 2025 stats are added to the player pool
+    with zero historical production so rookies are not excluded.
+    """
+
+    historical_df = df.copy()
+
+    roster_df = prepare_fantasy_rosters().copy()
+
+    roster_df = roster_df.rename(
+        columns={
+            "gsis_id": "player_id",
+            "player_name_clean": "roster_player_name",
+            "team": "current_team",
+            "position": "current_position",
+        }
+    )
+    roster_columns = [
+        "player_id",
+        "roster_player_name",
+        "current_team",
+        "current_position",
+        "status",
+        "years_exp",
+        "entry_year",
+        "rookie_year",
+        "draft_club",
+        "draft_number",
+        "is_rookie",
+    ]
+
+    roster_df = roster_df[roster_columns].copy()
+
+    # Merge historical production with current roster identity.
+    merged_df = historical_df.merge(
+        roster_df,
+        on="player_id",
+        how="outer",
+    )
+
+    # Current roster identity is authoritative.
+    merged_df["player_name_clean"] = (
+        merged_df["roster_player_name"]
+        .fillna(merged_df["player_name_clean"])
+    )
+
+    merged_df["team"] = (
+        merged_df["current_team"]
+        .fillna(merged_df["team"])
+    )
+
+    merged_df["position"] = (
+        merged_df["current_position"]
+        .fillna(merged_df["position"])
+    )
+
+    # New players/rookies have no 2025 production.
+    # Fill numeric historical fields with zero.
+    identity_columns = {
+        "player_id",
+        "player_name_clean",
+        "team",
+        "position",
+        "roster_player_name",
+        "current_team",
+        "current_position",
+        "status",
+    }
+
+    numeric_columns = [
+        column
+        for column in merged_df.columns
+        if column not in identity_columns
+        and merged_df[column].dtype.kind in "biufc"
+    ]
+
+    merged_df[numeric_columns] = (
+        merged_df[numeric_columns]
+        .fillna(0)
+    )
+
+    # Remove temporary merge fields.
+    merged_df = merged_df.drop(
+        columns=[
+            "roster_player_name",
+            "current_team",
+            "current_position",
+        ]
+    )
+
+    return merged_df
+
+
+
+
 # ============================================================
 # ADD EDGEIQ CALCULATED METRICS
 # ============================================================
@@ -345,6 +451,12 @@ def create_master_player_table():
 
     df = build_master_player_table()
 
+    df = add_current_roster_identity(
+        df
+    )
+
+
+
     df = add_calculated_metrics(
         df
     )
@@ -361,6 +473,9 @@ def create_master_player_table():
     )
 
     return df
+
+
+
 
 
 # ============================================================

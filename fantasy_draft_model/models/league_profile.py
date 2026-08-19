@@ -8,6 +8,19 @@ LEAGUES = {
     "Drunk Sundays": {
         "name": "Drunk Sundays",
         "team_count": 12,
+                "roster_size": 15,
+
+        "starters": {
+            "QB": 1,
+            "RB": 2,
+            "WR": 2,
+            "TE": 1,
+            "FLEX": 2,
+            "K": 1,
+            "DEF": 1,
+        },
+
+        "bench_size": 5,
     
         "draft_order": [
                 "Parrots",
@@ -16,7 +29,7 @@ LEAGUES = {
                 "The Bird Is The Word",
                 "Tez Swagg",
                 "Diamonds Forever Inn The House",
-                "NH4Life",
+                "Only Here To Beat My Husband",
                 "Long & Deep",
                 "BLKWDW'S",
                 "Door Dash At 2AM",
@@ -30,11 +43,38 @@ LEAGUES = {
     "Somewhat Related": {
         "name": "Somewhat Related",
         "team_count": 12,
+                "roster_size": 15,
 
-        
+        "starters": {
+            "QB": 1,
+            "RB": 2,
+            "WR": 2,
+            "TE": 1,
+            "FLEX": 2,
+            "K": 1,
+            "DEF": 1,
+        },
 
-    },
-}
+        "bench_size": 5,
+
+        "draft_order": [
+            "Stopped Short",
+            "Winner in Mexico",
+            "Sixty Niners",
+            "Fat Dink",
+            "Phizucked",
+            "Buttnuggets",
+            "Hashbrownies",
+            "Retriever's",
+            "Phinatic",
+            "S U C K I T",
+            "Injured Reserve",
+            "Jabronies",
+        ],
+},
+
+    }
+
 
 
 def get_league(league_name):

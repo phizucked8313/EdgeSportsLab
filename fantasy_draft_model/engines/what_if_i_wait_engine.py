@@ -202,10 +202,17 @@ def create_wait_recommendation(
     Create EdgeIQ's draft recommendation.
     """
 
-    pressure = (
-        player_row["pressure_score"]
+    player_row.get(
+    "pressure_score",
+    0,
+)
+    pressure = float(
+    player_row.get(
+        "pressure_score",
+        0,
     )
-
+)
+    
     tier_status = (
         player_row["tier_status"]
     )
@@ -319,13 +326,14 @@ def analyze_wait(
 
 
     survival_score = (
-        estimate_survival_score(
-            player_row[
-                "pressure_score"
-            ],
-            picks_until_next
-        )
+    estimate_survival_score(
+        player_row.get(
+            "pressure_score",
+            0,
+        ),
+        picks_until_next,
     )
+)
 
 
     fallback_df = (
@@ -371,19 +379,18 @@ def analyze_wait(
                 "position"
             ],
 
-        "tier":
-            int(
-                player_row[
-                    "tier"
-                ]
-            ),
+        "tier": int(
+            player_row.get("tier", 0)
+            if pd.notna(player_row.get("tier", 0))
+            else 0
+        ),
 
-        "pressure_score":
-            float(
-                player_row[
-                    "pressure_score"
-                ]
-            ),
+        "pressure_score": float(
+            player_row.get(
+                "pressure_score",
+                0,
+            )
+        ),
 
         "survival_score":
             survival_score,

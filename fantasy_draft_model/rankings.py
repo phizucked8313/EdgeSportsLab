@@ -62,36 +62,72 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
         df["vorp_score"] = 50.0
 
 
-    # -----------------------------------------
-    # NORMALIZE PROJECTION TO 0-100
-    # -----------------------------------------
-
-    projection_min = (
-        df["projected_points"].min()
-    )
-
-    projection_max = (
-        df["projected_points"].max()
-    )
-
-    if projection_max != projection_min:
-
-        df["projection_score"] = (
-            (
-                df["projected_points"]
-                - projection_min
-            )
-            /
-            (
-                projection_max
-                - projection_min
-            )
-            * 100
-        )
-
-    else:
+        # ---------------------------------------
+        # NORMALIZE PROJECTION WITHIN POSITION
+        # ---------------------------------------
 
         df["projection_score"] = 50.0
+
+        for position in df["position"].dropna().unique():
+
+            position_mask = df["position"] == position
+
+            projection_min = (
+                df.loc[position_mask, "projected_points"].min()
+            )
+
+            projection_max = (
+                df.loc[position_mask, "projected_points"].max()
+            )
+
+            if projection_max != projection_min:
+
+                df.loc[position_mask, "projection_score"] = (
+                    (
+                        df.loc[position_mask, "projected_points"]
+                        - projection_min
+                    )
+                    /
+                    (
+                        projection_max
+                        - projection_min
+                    )
+                    * 100
+                )
+
+# ---------------------------------------
+# NORMALIZE PROJECTION WITHIN POSITION
+# ---------------------------------------
+
+    df["projection_score"] = 50.0
+
+    for position in df["position"].dropna().unique():
+
+        position_mask = df["position"] == position
+
+        projection_min = (
+            df.loc[position_mask, "projected_points"].min()
+        )
+
+        projection_max = (
+            df.loc[position_mask, "projected_points"].max()
+        )
+
+        if projection_max != projection_min:
+
+            df.loc[position_mask, "projection_score"] = (
+                (
+                    df.loc[position_mask, "projected_points"]
+                    - projection_min
+                )
+                /
+                (
+                    projection_max
+                    - projection_min
+                )
+                * 100
+            )
+
 
 
     # -----------------------------------------

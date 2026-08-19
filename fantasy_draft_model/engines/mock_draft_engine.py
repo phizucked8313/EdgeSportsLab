@@ -327,6 +327,25 @@ def run_mock_draft(
         )
     )
 
+    print("\nDEBUG AVAILABLE ROOKIES")
+    print(
+        available[
+            available["is_rookie"].fillna(False) == True
+        ][
+            [
+                "player_name_clean",
+                "position",
+                "draft_rank",
+                "projected_points",
+            ]
+        ]
+        .head(25)
+        .to_string(index=False)
+    )
+
+
+
+
     available["bye_week"] = available["team"].map(get_bye_week)
 
 
