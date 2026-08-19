@@ -92,8 +92,15 @@ def test_cpu_with_two_qbs_never_takes_third_qb(monkeypatch):
 
     pick = cpu_draft.make_cpu_pick(
         _available(),
-        {"QB": 2, "RB": 2, "WR": 2, "TE": 1},
-        round_number=14,
+        {
+            "QB": 2,
+            "RB": 3,
+            "WR": 3,
+            "TE": 1,
+            "K": 1,
+            "DEF": 1,
+        },
+        round_number=11,
         team_name="Test Team",
     )
 
