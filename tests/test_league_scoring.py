@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from fantasy_draft_model.config import load_league_settings
-from fantasy_draft_model.engines import projection_engine
+from fantasy_draft_model.engines import projection_engine, vorp_engine
 from fantasy_draft_model import rankings
 from fantasy_draft_model.models import player_profiles
 from fantasy_draft_model.models.projections import (
@@ -367,3 +367,14 @@ def test_projection_pipeline_passes_selected_league_settings_to_vorp(monkeypatch
 
     with pytest.raises(ReachedVorp):
         projection_engine.build_2026_projections("somewhat_related")
+
+
+def test_vorp_functions_require_explicit_league_settings():
+    functions = [
+        vorp_engine.calculate_replacement_ranks,
+        vorp_engine.calculate_vorp,
+    ]
+
+    for function in functions:
+        parameters = inspect.signature(function).parameters
+        assert parameters["league_settings"].default is inspect.Parameter.empty
