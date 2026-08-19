@@ -8,6 +8,7 @@ from fantasy_draft_model.engines.talent_engine import (
     add_rookie_ramp_factor,
     add_rookie_team_environment,
     add_rookie_projection_components,
+    add_rookie_baseline_projection,
 )
 
 
@@ -123,3 +124,41 @@ def test_composite_score_rewards_stronger_available_inputs():
     assert result.loc["Strong", "rookie_projection_score"] > result.loc["Weak", "rookie_projection_score"]
     assert result.loc["Strong", "rookie_prospect_profile_score"] == 50.0
     assert result.loc["Weak", "rookie_team_environment_multiplier"] == 1.0
+
+
+POSITION_BOUNDS = {
+    "RB": (70.0, 290.0),
+    "WR": (60.0, 260.0),
+    "TE": (35.0, 190.0),
+    "QB": (40.0, 330.0),
+}
+
+
+def test_rookie_baselines_respect_position_specific_bounds():
+    rows = []
+    for position in POSITION_BOUNDS:
+        rows.append({
+            "player_name_clean": f"{position} Rookie",
+            "position": position,
+            "team": "AAA",
+            "status": "Active",
+            "is_rookie": True,
+            "draft_number": 1,
+        })
+    df = add_rookie_projection_components(pd.DataFrame(rows))
+    result = add_rookie_baseline_projection(df)
+
+    for _, row in result.iterrows():
+        low, high = POSITION_BOUNDS[row["position"]]
+        assert low <= row["rookie_baseline_projection"] <= high
+
+
+def test_veterans_and_unsupported_positions_do_not_get_rookie_baseline():
+    df = pd.DataFrame([
+        {"player_name_clean": "Veteran", "position": "RB", "is_rookie": False, "rookie_projection_score": 100.0},
+        {"player_name_clean": "Rookie K", "position": "K", "is_rookie": True, "rookie_projection_score": 100.0},
+    ])
+    result = add_rookie_baseline_projection(df).set_index("player_name_clean")
+
+    assert result.loc["Veteran", "rookie_baseline_projection"] == 0.0
+    assert result.loc["Rookie K", "rookie_baseline_projection"] == 0.0
