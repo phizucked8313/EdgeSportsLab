@@ -15,6 +15,7 @@ from fantasy_draft_model.models.special_teams import (
     build_kicker_rankings,
     build_defense_rankings,
 )
+from fantasy_draft_model.models.schedule import get_bye_week
 
 
 # ============================================================
@@ -210,6 +211,7 @@ def build_draft_rankings(league_key):
         ignore_index=True,
         sort=False,
     )
+    df["bye_week"] = df["team"].map(get_bye_week)
     return df
 
 
