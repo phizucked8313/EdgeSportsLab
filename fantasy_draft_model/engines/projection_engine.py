@@ -16,6 +16,7 @@ from fantasy_draft_model.engines.injury_risk import (
 from fantasy_draft_model.engines.tier_engine import calculate_tiers
 from fantasy_draft_model.integrations.current_injury_normalizer import (
     load_normalized_current_injuries,
+    attach_current_injury_state,
 )
 from fantasy_draft_model.models.team_injury_impact_engine import (
     add_team_injury_impact,
@@ -278,6 +279,7 @@ def build_2026_projections(league_key):
     df = calculate_projection(df)
 
     current_injuries = load_normalized_current_injuries()
+    df = attach_current_injury_state(df, current_injuries)
     current_injuries = add_team_injury_impact(current_injuries)
     df = add_player_opportunity_ripple(df, current_injuries)
 
@@ -314,6 +316,8 @@ def build_2026_projections(league_key):
         df.loc[mask, "injury_ripple_multiplier"] = (
             df.loc[mask, multiplier_column].fillna(1.0)
         )
+
+    df = neutralize_positive_ripple_for_current_injuries(df)
 
     df["projected_points"] = (
         df["projected_points"]
