@@ -14,6 +14,18 @@ POSITION_OPPORTUNITY_BASE = {
 ACTIVE_STATUSES = {"active", "act"}
 LIMITED_STATUSES = {"inactive", "ir", "pup", "reserve", "res"}
 
+RB_ROLE_ADJUSTMENTS = {
+    "starter": 10.0,
+    "lead": 10.0,
+    "lead back": 10.0,
+    "rb1": 10.0,
+    "committee": 3.0,
+    "timeshare": 3.0,
+    "backup": -7.0,
+    "rb2": -7.0,
+    "depth": -10.0,
+}
+
 ROOKIE_POSITION_CURVE = {
     "RB": 85.0,
     "WR": 75.0,
@@ -61,13 +73,52 @@ def calculate_rookie_talent_score(df):
     return df
 
 
+def add_touch_efficiency_metrics(df):
+    """
+    Add skill-player touch volume and fantasy-point efficiency metrics.
+
+    EdgeIQ defines an RB touch as one rushing attempt or one reception:
+    touches = carries + receptions.
+    """
+
+    df = df.copy()
+
+    carries = (
+        pd.to_numeric(df["carries"], errors="coerce").fillna(0.0)
+        if "carries" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+    receptions = (
+        pd.to_numeric(df["receptions"], errors="coerce").fillna(0.0)
+        if "receptions" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+
+    df["touches"] = carries + receptions
+
+    fantasy_points = (
+        pd.to_numeric(df["custom_fantasy_points"], errors="coerce").fillna(0.0)
+        if "custom_fantasy_points" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+
+    df["fantasy_points_per_touch"] = 0.0
+    positive_touch_mask = df["touches"] > 0
+    df.loc[positive_touch_mask, "fantasy_points_per_touch"] = (
+        fantasy_points.loc[positive_touch_mask]
+        / df.loc[positive_touch_mask, "touches"]
+    ).round(3)
+
+    return df
+
+
 def add_rookie_opportunity_score(df):
     """
     Add a conservative 2026 rookie roster-opportunity score.
 
     Uses current roster presence/status plus draft-capital-derived talent
-    as a proxy. It intentionally does not depend on the stale 2025
-    depth-chart dataset.
+    as a proxy. A confirmed rookie RB role can adjust the opportunity score.
+    It intentionally does not depend on the stale 2025 depth-chart dataset.
     """
 
     df = df.copy()
@@ -99,6 +150,11 @@ def add_rookie_opportunity_score(df):
         elif status_key in LIMITED_STATUSES:
             score -= 10.0
 
+        if position == "RB" and "rookie_role" in df.columns:
+            role = df.at[index, "rookie_role"]
+            role_key = "" if pd.isna(role) else str(role).strip().lower()
+            score += RB_ROLE_ADJUSTMENTS.get(role_key, 0.0)
+
         df.at[index, "rookie_opportunity_score"] = round(
             max(35.0, min(90.0, score)),
             2,
@@ -124,6 +180,33 @@ def add_rookie_position_curve(df):
         .map(ROOKIE_POSITION_CURVE)
         .fillna(50.0)
     )
+
+    return df
+
+
+def add_rookie_ramp_factor(df):
+    """
+    Add a modest season-level transition adjustment for rookie WRs.
+
+    The six-week WR ramp is represented as a 0.96 full-season multiplier,
+    avoiding a hard rule that suppresses immediate rookie breakouts.
+    Other positions and veterans remain neutral at 1.00.
+    """
+
+    df = df.copy()
+    df["rookie_ramp_weeks"] = 0
+    df["rookie_ramp_factor"] = 1.0
+
+    if "is_rookie" not in df.columns or "position" not in df.columns:
+        return df
+
+    rookie_wr_mask = (
+        (df["is_rookie"] == True)
+        & (df["position"].astype(str).str.upper().str.strip() == "WR")
+    )
+
+    df.loc[rookie_wr_mask, "rookie_ramp_weeks"] = 6
+    df.loc[rookie_wr_mask, "rookie_ramp_factor"] = 0.96
 
     return df
 
