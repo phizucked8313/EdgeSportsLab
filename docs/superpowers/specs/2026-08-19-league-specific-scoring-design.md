@@ -31,7 +31,7 @@ Long-play categories are distinct Yahoo scoring categories and can stack with or
 2. Require `league_key` through public scoring/projection/ranking entry points.
 3. Remove hardcoded offensive scoring values from Python.
 4. Support all confirmed offensive categories for both leagues.
-5. Add historical play-by-play aggregation for 40+ yard offensive categories.
+5. Add historical play-by-play aggregation for 40+ yard offensive categories and exact offensive fumble-return TDs.
 6. Preserve and apply cumulative yardage performance bonuses.
 7. Store complete kicker scoring settings for both leagues.
 8. Store complete defense/special-teams scoring settings for both leagues.
@@ -309,22 +309,46 @@ No DST projections are added in #6.
 
 ---
 
-# 5. Long-Play Data Pipeline
+# 5. Long-Play and Exact Event Data Pipeline
 
-## Why weekly player stats are insufficient
+## Why the existing master table is insufficient
 
-The existing `nflreadpy.load_player_stats()` weekly table supplies aggregate weekly/season stats but does not provide the event-level counts needed to distinguish:
+The current master table does not yet feed every confirmed Yahoo category into custom scoring. In particular it must include or derive:
 
-- 40+ completions
-- 40+ passing TDs
-- 40+ runs
-- 40+ rushing TDs
-- 40+ receptions
-- 40+ receiving TDs
+- interceptions thrown
+- passing/rushing/receiving 2-point conversions
+- fumbles lost
+- return TDs
+- offensive fumble return TDs
+- 40+ completion/run/reception counts
+- 40+ passing/rushing/receiving TD counts
 
-`nflreadpy.load_pbp(seasons=[2025])` is the correct historical source for those event-level counts.
+The nflverse player-stat feed already exposes passing, rushing, and receiving 2-point conversions; special-teams TDs; and context-specific fumble-lost counters. Those should be aggregated directly from weekly player stats rather than re-derived from names or fantasy-point totals.
 
-## New integration
+The exact 40+ TD subcategories and offensive-fumble-return classification require event context, so `nflreadpy.load_pbp(seasons=[2025])` supplies that layer.
+
+## Weekly-stat aggregation additions
+
+Extend the existing player aggregation to preserve at least:
+
+- `passing_interceptions`
+- `passing_2pt_conversions`
+- `rushing_2pt_conversions`
+- `receiving_2pt_conversions`
+- `special_teams_tds`
+- `sack_fumbles_lost`
+- `rushing_fumbles_lost`
+- `receiving_fumbles_lost`
+
+Derived scoring inputs:
+
+- `two_point_conversions` = passing + rushing + receiving 2-point conversions
+- `fumbles_lost` = sack + rushing + receiving fumbles lost
+- `return_tds` = special-teams TDs for the fantasy-player offense layer
+
+Do not infer these from `fantasy_points_ppr`; use the raw stat components.
+
+## New PBP integration
 
 Add a focused integration module, recommended path:
 
@@ -333,14 +357,15 @@ Add a focused integration module, recommended path:
 Responsibilities:
 
 1. Load 2025 regular-season play-by-play with `nflreadpy.load_pbp(seasons=[2025])`.
-2. Keep only columns required for long-play classification and player IDs.
-3. Derive six event counters at player level:
+2. Keep only columns required for event classification and player IDs.
+3. Derive player-level counters:
    - `plays_40_pass_completion`
    - `plays_40_pass_td`
    - `plays_40_rush`
    - `plays_40_rush_td`
    - `plays_40_reception`
    - `plays_40_reception_td`
+   - `offensive_fumble_return_tds`
 4. Aggregate by GSIS player ID so it can merge with the existing master player table's `player_id`.
 5. Merge these counters into the historical master table before custom scoring is calculated.
 6. Fill missing counters with zero.
@@ -402,7 +427,7 @@ The caller must supply already-resolved league settings.
 
 This keeps the scoring function deterministic and easy to unit test. League selection belongs at public pipeline boundaries, not deep inside arithmetic helpers.
 
-The arithmetic should include all supported offensive columns when present and use zero-safe helpers for historical columns that are legitimately absent for rookies.
+The arithmetic must cover every confirmed offense category from Section 2 using explicit source columns. Rookie rows with no historical stats receive zero for historical counters, not missing values and not borrowed league defaults.
 
 ---
 
@@ -454,7 +479,12 @@ The current test asserting the old +3/+3/+3 bonus values is obsolete because the
 
 Use synthetic rows to isolate each category:
 
-- ordinary yard/reception/TD/turnover scoring
+- ordinary yard/reception/TD scoring
+- interception thrown penalty
+- 2-point conversions
+- fumbles lost
+- return TD
+- offensive fumble return TD
 - cumulative 300/400/500 passing bonuses
 - cumulative 100/200/300 rushing bonuses
 - cumulative 100/200/300 receiving bonuses
@@ -462,7 +492,7 @@ Use synthetic rows to isolate each category:
 - Somewhat Related 40+ run/reception/TD stacking
 - same synthetic player scores differently under the two profiles
 
-## Long-play aggregation tests
+## Long-play/event aggregation tests
 
 Use a tiny synthetic PBP frame so tests do not require the network:
 
@@ -471,7 +501,8 @@ Use a tiny synthetic PBP frame so tests do not require the network:
 - 40+ pass TD increments completion and pass-TD counters
 - 40+ rush TD increments run and rush-TD counters
 - 40+ receiving TD increments reception and receiving-TD counters
-- IDs are attributed to the correct passer/rusher/receiver
+- offensive fumble-return TD is classified separately
+- IDs are attributed to the correct passer/rusher/receiver/scorer
 
 ## Pipeline tests
 
@@ -511,14 +542,14 @@ Network/data-loader failures from nflreadpy should surface with enough context t
 
 # 11. Performance and Data Loading
 
-Play-by-play is much larger than weekly player stats. The long-play loader should:
+Play-by-play is much larger than weekly player stats. The event loader should:
 
 - load only the required season (2025 for the current baseline)
 - filter to regular season
 - select only required columns before converting/aggregating where practical
 - aggregate once to player-level counters before merging
 
-No repeated PBP load should occur per player or per league. The historical long-play counts are league-independent; only the points assigned to those counts differ by league.
+No repeated PBP load should occur per player or per league. The historical event counts are league-independent; only the points assigned to those counts differ by league.
 
 ---
 
@@ -541,9 +572,9 @@ No repeated PBP load should occur per player or per league. The historical long-
 
 1. EdgeIQ has separate `drunk_sundays` and `somewhat_related` scoring profiles.
 2. No scoring-sensitive public pipeline silently chooses a league.
-3. All confirmed offensive scoring categories from the Yahoo screenshots are represented.
+3. All confirmed offensive scoring categories from the Yahoo screenshots are represented and fed by explicit stat/event inputs.
 4. Cumulative performance bonuses are modeled correctly.
-5. Historical 40+ play counts are derived from play-by-play and included in scoring.
+5. Historical 40+ play/TD counts and offensive fumble-return TDs are derived from play-by-play and included in scoring.
 6. The same player/data can score differently between leagues according to their configured rules.
 7. All supplied kicker and DST rules are stored accurately for #13.
 8. Drunk Sundays defensive yards-allowed scoring is preserved; Somewhat Related does not inherit it.
