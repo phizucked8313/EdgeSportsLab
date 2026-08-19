@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.integrations.data_loader import load_weekly_player_stats
 from fantasy_draft_model.integrations.roster_loader import prepare_fantasy_rosters
 
@@ -498,32 +499,33 @@ def add_calculated_metrics(df):
 # CALCULATE OUR LEAGUE'S 2025 FANTASY POINTS
 # ============================================================
 
-def add_custom_fantasy_scoring(df):
+def add_custom_fantasy_scoring(df, league_settings=None):
     """
-    Calculate fantasy scoring using the user's
-    keeper league scoring rules.
+    Calculate fantasy scoring from EdgeIQ league settings.
     """
 
     df = df.copy()
+    settings = league_settings or load_league_settings()
+    scoring = settings["scoring"]
 
     df["custom_fantasy_points"] = (
         # PPR
-        df["receptions"] * 1.0
+        df["receptions"] * scoring["reception"]
 
         # Yardage
-        + df["rushing_yards"] * 0.10
-        + df["receiving_yards"] * 0.10
-        + df["passing_yards"] * 0.04
+        + df["rushing_yards"] * scoring["rushing_yard"]
+        + df["receiving_yards"] * scoring["receiving_yard"]
+        + df["passing_yards"] * scoring["passing_yard"]
 
         # Touchdowns
-        + df["rushing_tds"] * 6
-        + df["receiving_tds"] * 6
-        + df["passing_tds"] * 4
+        + df["rushing_tds"] * scoring["rushing_td"]
+        + df["receiving_tds"] * scoring["receiving_td"]
+        + df["passing_tds"] * scoring["passing_td"]
 
         # Big-game bonuses
-        + df["games_300_pass"] * 3
-        + df["games_100_rush"] * 3
-        + df["games_100_receive"] * 3
+        + df["games_300_pass"] * scoring["bonus_300_passing"]
+        + df["games_100_rush"] * scoring["bonus_100_rushing"]
+        + df["games_100_receive"] * scoring["bonus_100_receiving"]
     )
 
     df["custom_points_per_game"] = np.where(
