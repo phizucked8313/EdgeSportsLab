@@ -30,7 +30,7 @@ def normalize_current_injuries(players_df):
     df = players_df.copy()
 
     required = [
-        "sleeper_id", "espn_id", "yahoo_id", "player_name",
+        "sleeper_id", "gsis_id", "espn_id", "yahoo_id", "player_name",
         "team", "position", "status", "injury_status",
         "injury_body_part", "injury_start_date",
         "practice_participation",
@@ -63,7 +63,7 @@ def normalize_current_injuries(players_df):
 
     return df[
         [
-            "sleeper_id", "espn_id", "yahoo_id", "player_name",
+            "sleeper_id", "gsis_id", "espn_id", "yahoo_id", "player_name",
             "team", "position", "status", "report_status",
             "practice_status", "source_injury_body_part",
             "edgeiq_injury_body_part", "injury_start_date",
