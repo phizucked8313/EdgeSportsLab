@@ -34,9 +34,19 @@ BYE_WEEKS = {
 }
 
 
+TEAM_ALIASES = {
+    "AZ": "ARI",
+    "LA": "LAR",
+}
+
+
 def get_bye_week(team):
+    canonical_team = TEAM_ALIASES.get(
+        team,
+        team,
+    )
 
     return BYE_WEEKS.get(
-        team,
-        0
+        canonical_team,
+        0,
     )
