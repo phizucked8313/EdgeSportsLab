@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.models.player_profiles import build_player_profiles
 from fantasy_draft_model.engines.edgescore_engine import calculate_edgescore
 from fantasy_draft_model.engines.vorp_engine import calculate_vorp
@@ -229,6 +230,7 @@ def build_2026_projections(league_key):
     """Build EdgeIQ projections for one explicitly selected league."""
     print("\nBuilding EdgeIQ 2026 projections...")
 
+    league_settings = load_league_settings(league_key)
     df = build_player_profiles(league_key)
 
     if "is_fantasy_draftable" in df.columns:
@@ -297,10 +299,7 @@ def build_2026_projections(league_key):
     df = calculate_floor_ceiling(df)
     df = calculate_projection_confidence(df)
     df = calculate_edgescore(df)
-
-    # Task 5B will pass the resolved league settings into VORP.
-    df = calculate_vorp(df)
-
+    df = calculate_vorp(df, league_settings)
     df = calculate_tiers(df)
     df = (
         df.sort_values("projected_points", ascending=False)
