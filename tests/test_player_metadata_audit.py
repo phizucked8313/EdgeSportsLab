@@ -45,6 +45,13 @@ def test_all_32_nfl_teams_resolve_to_valid_2026_bye_week():
     )
 
 
+def test_current_roster_team_aliases_resolve_to_canonical_byes():
+    assert get_bye_week("AZ") == get_bye_week("ARI")
+    assert get_bye_week("LA") == get_bye_week("LAR")
+    assert get_bye_week("AZ") != 0
+    assert get_bye_week("LA") != 0
+
+
 def _stub_rankings_pipeline(monkeypatch):
     offense = pd.DataFrame([
         {
