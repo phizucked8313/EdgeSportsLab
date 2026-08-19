@@ -49,3 +49,34 @@ def test_replacement_ranks_allocate_flex_to_best_remaining_rb_wr():
         "WR": 3,
         "TE": 2,
     }
+
+
+def test_replacement_ranks_change_with_league_lineup():
+    df = pd.DataFrame(
+        {
+            "position": ["QB"] * 6 + ["RB"] * 8 + ["WR"] * 8 + ["TE"] * 6,
+            "projected_points": list(range(300, 272, -1)),
+        }
+    )
+
+    small = {
+        "teams": 2,
+        "lineup": {"QB": 1, "RB": 1, "WR": 1, "TE": 1, "FLEX": 0},
+    }
+    larger = {
+        "teams": 3,
+        "lineup": {"QB": 1, "RB": 1, "WR": 1, "TE": 1, "FLEX": 0},
+    }
+
+    assert vorp_engine.calculate_replacement_ranks(df, small) == {
+        "QB": 2,
+        "RB": 2,
+        "WR": 2,
+        "TE": 2,
+    }
+    assert vorp_engine.calculate_replacement_ranks(df, larger) == {
+        "QB": 3,
+        "RB": 3,
+        "WR": 3,
+        "TE": 3,
+    }
