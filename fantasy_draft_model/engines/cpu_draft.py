@@ -130,6 +130,23 @@ def make_cpu_pick(
     if cpu_pool.empty:
         cpu_pool = available.copy()
 
+    # --------------------------------------------
+    # 1-QB LEAGUE ROSTER ECONOMICS
+    # --------------------------------------------
+
+    # Keep the first QB available naturally. Once a starter is rostered,
+    # block a backup through Round 10. Starting in Round 11 a second QB
+    # can be selected on value, but a third QB is never allowed.
+    block_qb = (
+        qb_count >= 2
+        or (qb_count >= 1 and round_number <= 10)
+    )
+
+    if block_qb:
+        cpu_pool = cpu_pool[
+            cpu_pool["position"] != "QB"
+        ]
+
     # Apply manager personality
     cpu_pool = cpu_pool.copy()
 
