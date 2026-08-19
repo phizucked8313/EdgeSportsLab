@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 from fantasy_draft_model.engines.talent_engine import (
@@ -162,3 +164,12 @@ def test_veterans_and_unsupported_positions_do_not_get_rookie_baseline():
 
     assert result.loc["Veteran", "rookie_baseline_projection"] == 0.0
     assert result.loc["Rookie K", "rookie_baseline_projection"] == 0.0
+
+
+def test_projection_engine_calls_multi_factor_rookie_components():
+    source = Path(
+        "fantasy_draft_model/engines/projection_engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "add_rookie_projection_components" in source
+    assert "add_rookie_baseline_projection" in source
