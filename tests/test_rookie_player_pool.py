@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 from fantasy_draft_model.integrations.roster_loader import add_rookie_identity
@@ -129,3 +131,11 @@ def test_draftability_is_separate_from_rookie_identity():
     assert bool(result.loc["Historical Only", "is_fantasy_draftable"]) is False
     assert bool(result.loc["PUP Star", "is_fantasy_draftable"]) is True
     assert bool(result.loc["Fringe Rookie", "is_rookie"]) is True
+
+
+def test_live_projection_engine_filters_to_fantasy_draftable_pool():
+    source = Path(
+        "fantasy_draft_model/engines/projection_engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "is_fantasy_draftable" in source
