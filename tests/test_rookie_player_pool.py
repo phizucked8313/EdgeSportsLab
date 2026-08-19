@@ -79,6 +79,16 @@ def test_draftability_is_separate_from_rookie_identity():
             "status": "Active",
         },
         {
+            "player_name_clean": "Active UDFA",
+            "position": "WR",
+            "team": "BBB",
+            "on_current_roster": True,
+            "is_rookie": True,
+            "draft_number": 0,
+            "games_played": 0,
+            "status": "ACT",
+        },
+        {
             "player_name_clean": "Fringe Rookie",
             "position": "WR",
             "team": "BBB",
@@ -126,10 +136,12 @@ def test_draftability_is_separate_from_rookie_identity():
     result = helper(df).set_index("player_name_clean")
 
     assert bool(result.loc["Drafted Rookie", "is_fantasy_draftable"]) is True
+    assert bool(result.loc["Active UDFA", "is_fantasy_draftable"]) is False
     assert bool(result.loc["Fringe Rookie", "is_fantasy_draftable"]) is False
     assert bool(result.loc["Veteran Producer", "is_fantasy_draftable"]) is True
     assert bool(result.loc["Historical Only", "is_fantasy_draftable"]) is False
     assert bool(result.loc["PUP Star", "is_fantasy_draftable"]) is True
+    assert bool(result.loc["Active UDFA", "is_rookie"]) is True
     assert bool(result.loc["Fringe Rookie", "is_rookie"]) is True
 
 
