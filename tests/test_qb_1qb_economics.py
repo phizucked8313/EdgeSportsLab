@@ -26,3 +26,29 @@ def test_vorp_normalization_treats_replacement_level_as_zero_value():
     assert result.loc["Mid Value", "vorp_score"] == 50.0
     assert result.loc["Replacement QB", "vorp_score"] == 0.0
     assert result.loc["Below Replacement QB", "vorp_score"] == 0.0
+
+
+def test_qb_projection_score_uses_points_above_replacement():
+    df = pd.DataFrame(
+        {
+            "player_name_clean": [
+                "Elite QB",
+                "Mid QB",
+                "Replacement QB",
+                "Below Replacement QB",
+            ],
+            "position": ["QB", "QB", "QB", "QB"],
+            "projected_points": [430.0, 390.0, 350.0, 330.0],
+            "replacement_points": [350.0, 350.0, 350.0, 350.0],
+        }
+    )
+
+    helper = getattr(rankings, "add_position_projection_score", None)
+    assert helper is not None, "add_position_projection_score helper is not implemented yet"
+
+    result = helper(df).set_index("player_name_clean")
+
+    assert result.loc["Elite QB", "projection_score"] == 100.0
+    assert result.loc["Mid QB", "projection_score"] == 50.0
+    assert result.loc["Replacement QB", "projection_score"] == 0.0
+    assert result.loc["Below Replacement QB", "projection_score"] == 0.0
