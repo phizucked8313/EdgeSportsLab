@@ -233,6 +233,83 @@ def build_master_player_table():
     return master_df
 
 
+def merge_current_roster_identity(historical_df, roster_df):
+    """
+    Merge historical production with current roster identity while
+    preserving whether each player is actually present on the current roster.
+    """
+
+    historical_df = historical_df.copy()
+    roster_df = roster_df.copy()
+
+    roster_df["on_current_roster"] = True
+
+    merged_df = historical_df.merge(
+        roster_df,
+        on="player_id",
+        how="outer",
+    )
+
+    merged_df["on_current_roster"] = (
+        merged_df["on_current_roster"]
+        .fillna(False)
+        .astype(bool)
+    )
+
+    # Current roster identity is authoritative.
+    merged_df["player_name_clean"] = (
+        merged_df["roster_player_name"]
+        .fillna(merged_df["player_name_clean"])
+    )
+
+    merged_df["team"] = (
+        merged_df["current_team"]
+        .fillna(merged_df["team"])
+    )
+
+    merged_df["position"] = (
+        merged_df["current_position"]
+        .fillna(merged_df["position"])
+    )
+
+    # New players/rookies have no 2025 production.
+    # Fill numeric historical fields with zero.
+    identity_columns = {
+        "player_id",
+        "player_name_clean",
+        "team",
+        "position",
+        "roster_player_name",
+        "current_team",
+        "current_position",
+        "status",
+        "on_current_roster",
+    }
+
+    numeric_columns = [
+        column
+        for column in merged_df.columns
+        if column not in identity_columns
+        and merged_df[column].dtype.kind in "biufc"
+    ]
+
+    merged_df[numeric_columns] = (
+        merged_df[numeric_columns]
+        .fillna(0)
+    )
+
+    # Remove temporary merge fields.
+    merged_df = merged_df.drop(
+        columns=[
+            "roster_player_name",
+            "current_team",
+            "current_position",
+        ]
+    )
+
+    return merged_df
+
+
 def add_current_roster_identity(df):
     """
     Merge 2025 historical production with the current 2026 roster.
@@ -272,64 +349,10 @@ def add_current_roster_identity(df):
 
     roster_df = roster_df[roster_columns].copy()
 
-    # Merge historical production with current roster identity.
-    merged_df = historical_df.merge(
+    return merge_current_roster_identity(
+        historical_df,
         roster_df,
-        on="player_id",
-        how="outer",
     )
-
-    # Current roster identity is authoritative.
-    merged_df["player_name_clean"] = (
-        merged_df["roster_player_name"]
-        .fillna(merged_df["player_name_clean"])
-    )
-
-    merged_df["team"] = (
-        merged_df["current_team"]
-        .fillna(merged_df["team"])
-    )
-
-    merged_df["position"] = (
-        merged_df["current_position"]
-        .fillna(merged_df["position"])
-    )
-
-    # New players/rookies have no 2025 production.
-    # Fill numeric historical fields with zero.
-    identity_columns = {
-        "player_id",
-        "player_name_clean",
-        "team",
-        "position",
-        "roster_player_name",
-        "current_team",
-        "current_position",
-        "status",
-    }
-
-    numeric_columns = [
-        column
-        for column in merged_df.columns
-        if column not in identity_columns
-        and merged_df[column].dtype.kind in "biufc"
-    ]
-
-    merged_df[numeric_columns] = (
-        merged_df[numeric_columns]
-        .fillna(0)
-    )
-
-    # Remove temporary merge fields.
-    merged_df = merged_df.drop(
-        columns=[
-            "roster_player_name",
-            "current_team",
-            "current_position",
-        ]
-    )
-
-    return merged_df
 
 
 
