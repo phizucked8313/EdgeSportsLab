@@ -15,8 +15,8 @@ from fantasy_draft_model.engines.injury_risk import (
 )
 from fantasy_draft_model.engines.tier_engine import calculate_tiers
 
-from fantasy_draft_model.integrations.injury_history_loader import (
-    load_current_injuries,
+from fantasy_draft_model.integrations.current_injury_normalizer import (
+    load_normalized_current_injuries,
 )
 
 from fantasy_draft_model.models.team_injury_impact_engine import (
@@ -793,7 +793,7 @@ def build_2026_projections():
     # CURRENT NFL INJURY RIPPLE
     # ========================================================
 
-    current_injuries = load_current_injuries()
+    current_injuries = load_normalized_current_injuries()
 
     current_injuries = add_team_injury_impact(
         current_injuries
