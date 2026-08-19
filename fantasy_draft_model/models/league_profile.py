@@ -7,9 +7,13 @@ Version 1
 LEAGUES = {
     "Drunk Sundays": {
         "name": "Drunk Sundays",
+        "league_key": "drunk_sundays",
+        "keeper_rules": {
+            "standard": 15,
+            "rookie": 3,
+        },
         "team_count": 12,
-                "roster_size": 15,
-
+        "roster_size": 15,
         "starters": {
             "QB": 1,
             "RB": 2,
@@ -19,32 +23,30 @@ LEAGUES = {
             "K": 1,
             "DEF": 1,
         },
-
         "bench_size": 5,
-    
         "draft_order": [
-                "Parrots",
-                "Go Time",
-                "Hashbrownies",
-                "The Bird Is The Word",
-                "Tez Swagg",
-                "Diamonds Forever Inn The House",
-                "Only Here To Beat My Husband",
-                "Long & Deep",
-                "BLKWDW'S",
-                "Door Dash At 2AM",
-                "It's Geoffrey James Beeitch",
-                "Hawk Tua",
-            ],
-},       
-
-
-
+            "Parrots",
+            "Go Time",
+            "Hashbrownies",
+            "The Bird Is The Word",
+            "Tez Swagg",
+            "Diamonds Forever Inn The House",
+            "Only Here To Beat My Husband",
+            "Long & Deep",
+            "BLKWDW'S",
+            "Door Dash At 2AM",
+            "It's Geoffrey James Beeitch",
+            "Hawk Tua",
+        ],
+    },
     "Somewhat Related": {
         "name": "Somewhat Related",
+        "league_key": "somewhat_related",
+        "keeper_rules": {
+            "standard": 16,
+        },
         "team_count": 12,
-                "roster_size": 15,
-
+        "roster_size": 16,
         "starters": {
             "QB": 1,
             "RB": 2,
@@ -54,9 +56,7 @@ LEAGUES = {
             "K": 1,
             "DEF": 1,
         },
-
-        "bench_size": 5,
-
+        "bench_size": 6,
         "draft_order": [
             "Stopped Short",
             "Winner in Mexico",
@@ -71,15 +71,9 @@ LEAGUES = {
             "Injured Reserve",
             "Jabronies",
         ],
-},
-
-    }
-
+    },
+}
 
 
 def get_league(league_name):
-    return LEAGUES.get(
-    league_name
-)
-
-
+    return LEAGUES.get(league_name)
