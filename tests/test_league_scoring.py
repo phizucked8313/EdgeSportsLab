@@ -258,3 +258,112 @@ def test_rankings_forwards_explicit_league_key_to_projection_pipeline(monkeypatc
 
     with pytest.raises(ReachedProjectionPipeline):
         rankings.build_draft_rankings("drunk_sundays")
+
+
+def test_projection_pipeline_passes_selected_league_settings_to_vorp(monkeypatch):
+    class ReachedVorp(Exception):
+        pass
+
+    resolved_settings = {
+        "league_key": "somewhat_related",
+        "teams": 12,
+        "lineup": {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 2},
+        "scoring": {"offense": {}},
+    }
+
+    base = pd.DataFrame(
+        {
+            "player_name_clean": ["Test Player"],
+            "position": ["WR"],
+            "team": ["AAA"],
+            "injury_risk_score": [0.0],
+            "projected_points": [100.0],
+        }
+    )
+
+    ripple = pd.DataFrame(
+        {
+            "team": ["AAA"],
+            "qb_ripple_multiplier": [1.0],
+            "rb_ripple_multiplier": [1.0],
+            "wr_ripple_multiplier": [1.0],
+            "te_ripple_multiplier": [1.0],
+        }
+    )
+
+    monkeypatch.setattr(
+        projection_engine,
+        "load_league_settings",
+        lambda league_key: (
+            resolved_settings
+            if league_key == "somewhat_related"
+            else None
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        projection_engine,
+        "build_player_profiles",
+        lambda league_key: base.copy(),
+    )
+
+    identity_functions = [
+        "add_rookie_projection_components",
+        "add_rookie_baseline_projection",
+        "add_per_game_metrics",
+        "add_rushing_usage_scores",
+        "add_qb_contact_exposure",
+        "add_injury_scores",
+        "calculate_opportunity_score",
+        "add_target_regression",
+        "add_manual_adjustments",
+        "calculate_projection",
+        "calculate_floor_ceiling",
+        "calculate_projection_confidence",
+        "calculate_edgescore",
+    ]
+    for function_name in identity_functions:
+        monkeypatch.setattr(
+            projection_engine,
+            function_name,
+            lambda df: df,
+        )
+
+    monkeypatch.setattr(
+        projection_engine,
+        "load_normalized_current_injuries",
+        lambda: pd.DataFrame(),
+    )
+    monkeypatch.setattr(
+        projection_engine,
+        "add_team_injury_impact",
+        lambda df: df,
+    )
+    monkeypatch.setattr(
+        projection_engine,
+        "build_team_offensive_ripple",
+        lambda df: ripple.copy(),
+    )
+    monkeypatch.setattr(
+        projection_engine,
+        "add_fantasy_ripple_scores",
+        lambda df: df,
+    )
+    monkeypatch.setattr(
+        projection_engine,
+        "add_projection_multipliers",
+        lambda df: df,
+    )
+
+    def fake_calculate_vorp(df, league_settings):
+        assert league_settings is resolved_settings
+        raise ReachedVorp
+
+    monkeypatch.setattr(
+        projection_engine,
+        "calculate_vorp",
+        fake_calculate_vorp,
+    )
+
+    with pytest.raises(ReachedVorp):
+        projection_engine.build_2026_projections("somewhat_related")
