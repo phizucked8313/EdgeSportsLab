@@ -288,3 +288,100 @@ def test_record_manual_pick_rejects_duplicate_without_advancing(
 
     assert state["current_pick"] == current_pick
     assert len(state["manual_picks"]) == 1
+
+
+def test_undo_last_manual_pick_restores_pick_and_persists(
+    tmp_path,
+    monkeypatch,
+):
+    war_room = _war_room_module()
+    state_path = tmp_path / "war_room_state.json"
+    monkeypatch.setattr(
+        war_room,
+        "load_keepers",
+        lambda league_name=None: _empty_keepers(),
+    )
+    state = war_room.initialize_war_room(
+        "drunk_sundays",
+        state_path=state_path,
+    )
+    state["current_pick"] = 16
+    war_room.record_manual_pick(
+        state,
+        _player_row("Undo Test WR"),
+        state_path=state_path,
+    )
+
+    removed = war_room.undo_last_manual_pick(
+        state,
+        state_path=state_path,
+    )
+
+    assert removed["player_name"] == "Undo Test WR"
+    assert state["manual_picks"] == []
+    assert state["current_pick"] == 16
+    assert war_room.load_war_room_state(state_path) == state
+
+
+def test_undo_last_manual_pick_reopens_crossed_keeper_slot(
+    tmp_path,
+    monkeypatch,
+):
+    war_room = _war_room_module()
+    state_path = tmp_path / "war_room_state.json"
+    monkeypatch.setattr(
+        war_room,
+        "load_keepers",
+        lambda league_name=None: _synthetic_keepers(),
+    )
+    state = war_room.initialize_war_room(
+        "drunk_sundays",
+        state_path=state_path,
+    )
+    state["current_pick"] = 32
+
+    war_room.record_manual_pick(
+        state,
+        _player_row("Before Keeper WR"),
+        state_path=state_path,
+    )
+
+    assert state["current_pick"] == 34
+    assert 33 in state["processed_keeper_picks"]
+    reservations_before = list(state["keeper_reservations"])
+
+    war_room.undo_last_manual_pick(
+        state,
+        state_path=state_path,
+    )
+
+    assert state["current_pick"] == 32
+    assert 33 not in state["processed_keeper_picks"]
+    assert state["keeper_reservations"] == reservations_before
+
+
+def test_undo_last_manual_pick_rejects_empty_history_without_mutation(
+    tmp_path,
+    monkeypatch,
+):
+    war_room = _war_room_module()
+    state_path = tmp_path / "war_room_state.json"
+    monkeypatch.setattr(
+        war_room,
+        "load_keepers",
+        lambda league_name=None: _empty_keepers(),
+    )
+    state = war_room.initialize_war_room(
+        "drunk_sundays",
+        state_path=state_path,
+    )
+    before = dict(state)
+
+    with pytest.raises(ValueError, match="No manual picks to undo"):
+        war_room.undo_last_manual_pick(
+            state,
+            state_path=state_path,
+        )
+
+    assert state == before
+    assert war_room.load_war_room_state(state_path) == state
