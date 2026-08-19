@@ -21,6 +21,93 @@ FANTASY_POSITIONS = [
     "TE",
 ]
 
+DRAFTABLE_POSITIONS = {
+    "QB",
+    "RB",
+    "WR",
+    "TE",
+}
+
+NON_DRAFTABLE_FRINGE_STATUSES = {
+    "inactive",
+    "waived",
+    "released",
+    "cut",
+}
+
+
+def _series_or_default(df, column, default):
+    """Return a Series aligned to df.index even when a column is absent."""
+    if column in df.columns:
+        return df[column]
+    return pd.Series(default, index=df.index)
+
+
+def add_fantasy_draftable_flag(df):
+    """
+    Add a draftability flag without changing rookie identity.
+
+    Draftable players must be on a current NFL roster, have a team,
+    play QB/RB/WR/TE, and have at least one meaningful signal:
+    prior NFL production, drafted-rookie capital, or active UDFA status.
+    Injury/reserve status by itself does not remove established players.
+    """
+
+    df = df.copy()
+
+    position = _series_or_default(df, "position", "")
+    team = _series_or_default(df, "team", "")
+    roster = _series_or_default(df, "on_current_roster", False).fillna(False).astype(bool)
+    games = pd.to_numeric(
+        _series_or_default(df, "games_played", 0),
+        errors="coerce",
+    ).fillna(0)
+    draft_number = pd.to_numeric(
+        _series_or_default(df, "draft_number", 0),
+        errors="coerce",
+    ).fillna(0)
+    rookie = _series_or_default(df, "is_rookie", False).fillna(False).astype(bool)
+    status = (
+        _series_or_default(df, "status", "")
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    position_ok = position.isin(DRAFTABLE_POSITIONS)
+    team_ok = team.notna() & team.astype(str).str.strip().ne("")
+
+    prior_production = games > 0
+    drafted_rookie = rookie & (draft_number > 0)
+    active_udfa_rookie = (
+        rookie
+        & draft_number.le(0)
+        & status.isin({"active", "act"})
+    )
+
+    meaningful = (
+        prior_production
+        | drafted_rookie
+        | active_udfa_rookie
+    )
+
+    fringe_block = (
+        rookie
+        & draft_number.le(0)
+        & status.isin(NON_DRAFTABLE_FRINGE_STATUSES)
+    )
+
+    df["is_fantasy_draftable"] = (
+        position_ok
+        & team_ok
+        & roster
+        & meaningful
+        & ~fringe_block
+    ).astype(bool)
+
+    return df
+
 
 # ============================================================
 # CLEAN WEEKLY DATA
