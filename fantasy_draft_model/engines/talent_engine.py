@@ -33,6 +33,13 @@ ROOKIE_POSITION_CURVE = {
     "TE": 55.0,
 }
 
+ROOKIE_PROJECTION_BOUNDS = {
+    "RB": (70.0, 290.0),
+    "WR": (60.0, 260.0),
+    "TE": (35.0, 190.0),
+    "QB": (40.0, 330.0),
+}
+
 
 def calculate_rookie_talent_score(df):
     """
@@ -279,51 +286,43 @@ def add_rookie_projection_components(df):
 
 def add_rookie_baseline_projection(df):
     """
-    Create a simple rookie baseline fantasy projection.
+    Convert the multi-factor rookie score into a bounded 17-game fantasy
+    baseline for supported fantasy positions.
 
-    Version 1 uses:
-    - rookie talent score
-    - position
-    - draft capital indirectly through talent score
-
-    This is only a starter model.
+    Veterans and unsupported positions remain at 0.0.
     """
 
     df = df.copy()
+    df["rookie_baseline_projection"] = 0.0
 
     if "is_rookie" not in df.columns:
         return df
 
-    if "rookie_talent_score" not in df.columns:
-        return df
+    if "rookie_projection_score" not in df.columns:
+        df = add_rookie_projection_components(df)
 
-    rookie_mask = df["is_rookie"] == True
+    for index in df[df["is_rookie"] == True].index:
+        position = str(df.at[index, "position"]).upper().strip()
+        bounds = ROOKIE_PROJECTION_BOUNDS.get(position)
 
-    for index in df[rookie_mask].index:
+        if bounds is None:
+            continue
 
-        position = df.at[index, "position"]
-        talent = df.at[index, "rookie_talent_score"]
+        low, high = bounds
+        score = pd.to_numeric(
+            pd.Series([df.at[index, "rookie_projection_score"]]),
+            errors="coerce",
+        ).iloc[0]
 
-        if position == "RB":
-            baseline = talent * 2.4
+        if pd.isna(score):
+            score = 50.0
 
-        elif position == "WR":
-            baseline = talent * 2.1
+        score = max(0.0, min(100.0, float(score)))
+        baseline = low + (score / 100.0) * (high - low)
 
-        elif position == "TE":
-            baseline = talent * 1.6
-
-        elif position == "QB":
-            baseline = talent * 2.7
-
-        else:
-            baseline = 0.0
-
-        df.at[index, "rookie_baseline_projection"] = baseline
-
-    df["rookie_baseline_projection"] = (
-        df["rookie_baseline_projection"]
-        .fillna(0.0)
-    )
+        df.at[index, "rookie_baseline_projection"] = round(
+            max(low, min(high, baseline)),
+            2,
+        )
 
     return df
