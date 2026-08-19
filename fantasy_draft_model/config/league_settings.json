@@ -1,18 +1,6 @@
 {
   "season": 2026,
   "teams": 12,
-  "scoring": {
-    "reception": 1.0,
-    "rushing_yard": 0.1,
-    "receiving_yard": 0.1,
-    "passing_yard": 0.04,
-    "rushing_td": 6,
-    "receiving_td": 6,
-    "passing_td": 4,
-    "bonus_300_passing": 3,
-    "bonus_100_rushing": 3,
-    "bonus_100_receiving": 3
-  },
   "lineup": {
     "QB": 1,
     "RB": 2,
@@ -22,22 +10,155 @@
     "K": 1,
     "DEF": 1
   },
-  "replacement_levels": {
-    "QB": 12,
-    "RB": 24,
-    "WR": 24,
-    "TE": 12
-  },
-  "yahoo_leagues": {
+  "league_profiles": {
     "drunk_sundays": {
       "league_name": "Drunk Sundays",
       "league_id": "390151",
-      "keeper_league": true
+      "keeper_league": true,
+      "scoring": {
+        "offense": {
+          "passing_yard": 0.04,
+          "passing_td": 4,
+          "passing_interception": -1,
+          "rushing_yard": 0.1,
+          "rushing_td": 6,
+          "reception": 1.0,
+          "receiving_yard": 0.1,
+          "receiving_td": 6,
+          "return_td": 6,
+          "two_point_conversion": 2,
+          "fumble_lost": -2,
+          "offensive_fumble_return_td": 6,
+          "bonus_300_passing": 2,
+          "bonus_400_passing": 4,
+          "bonus_500_passing": 6,
+          "bonus_100_rushing": 2,
+          "bonus_200_rushing": 4,
+          "bonus_300_rushing": 6,
+          "bonus_100_receiving": 2,
+          "bonus_200_receiving": 4,
+          "bonus_300_receiving": 6,
+          "play_40_completion": 4,
+          "play_40_passing_td": 4,
+          "play_40_run": 0,
+          "play_40_rushing_td": 4,
+          "play_40_reception": 0,
+          "play_40_receiving_td": 4
+        },
+        "kicker": {
+          "field_goal_made": {
+            "0_19": 3,
+            "20_29": 3,
+            "30_39": 3.5,
+            "40_49": 4,
+            "50_plus": 5
+          },
+          "field_goal_missed": {
+            "0_19": -1,
+            "20_29": -1,
+            "30_39": -1,
+            "40_49": -1,
+            "50_plus": -1
+          },
+          "pat_made": 1,
+          "pat_missed": -1
+        },
+        "defense": {
+          "sack": 1,
+          "interception": 2,
+          "fumble_recovery": 2,
+          "touchdown": 6,
+          "safety": 2,
+          "blocked_kick": 2,
+          "kickoff_punt_return_td": 6,
+          "extra_point_returned": 2,
+          "points_allowed": {
+            "0": 14,
+            "1_6": 12,
+            "7_13": 10,
+            "14_20": 7,
+            "21_27": 4,
+            "28_34": 2,
+            "35_plus": 0
+          },
+          "yards_allowed": {
+            "0_99": 10,
+            "100_199": 8,
+            "200_299": 6,
+            "300_399": 2,
+            "400_499": 0,
+            "500_plus": -2
+          }
+        }
+      }
     },
     "somewhat_related": {
       "league_name": "Somewhat Related League",
       "league_id": "950841",
-      "keeper_league": true
+      "keeper_league": true,
+      "scoring": {
+        "offense": {
+          "passing_yard": 0.04,
+          "passing_td": 4,
+          "passing_interception": -1,
+          "rushing_yard": 0.1,
+          "rushing_td": 6,
+          "reception": 1.0,
+          "receiving_yard": 0.1,
+          "receiving_td": 6,
+          "return_td": 6,
+          "two_point_conversion": 2,
+          "fumble_lost": -2,
+          "offensive_fumble_return_td": 6,
+          "bonus_300_passing": 2,
+          "bonus_400_passing": 4,
+          "bonus_500_passing": 6,
+          "bonus_100_rushing": 2,
+          "bonus_200_rushing": 4,
+          "bonus_300_rushing": 6,
+          "bonus_100_receiving": 2,
+          "bonus_200_receiving": 4,
+          "bonus_300_receiving": 6,
+          "play_40_completion": 2,
+          "play_40_passing_td": 4,
+          "play_40_run": 2,
+          "play_40_rushing_td": 4,
+          "play_40_reception": 2,
+          "play_40_receiving_td": 4
+        },
+        "kicker": {
+          "field_goal_made": {
+            "0_19": 3,
+            "20_29": 3,
+            "30_39": 3.5,
+            "40_49": 4,
+            "50_plus": 5
+          },
+          "field_goal_missed": {},
+          "pat_made": 1,
+          "pat_missed": -1
+        },
+        "defense": {
+          "sack": 1,
+          "interception": 2,
+          "fumble_recovery": 2,
+          "touchdown": 6,
+          "safety": 2,
+          "blocked_kick": 2,
+          "kickoff_punt_return_td": 6,
+          "extra_point_returned": 2,
+          "points_allowed": {
+            "0": 10,
+            "1_6": 8,
+            "7_13": 6,
+            "14_20": 4,
+            "21_27": 2,
+            "28_34": 1,
+            "35_plus": 0
+          },
+          "yards_allowed": {}
+        }
+      }
     }
   }
 }
