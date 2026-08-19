@@ -6,6 +6,8 @@ from fantasy_draft_model.engines.talent_engine import (
     add_rookie_position_curve,
     add_touch_efficiency_metrics,
     add_rookie_ramp_factor,
+    add_rookie_team_environment,
+    add_rookie_projection_components,
 )
 
 
@@ -101,3 +103,23 @@ def test_wr_gets_modest_six_week_ramp_and_rb_does_not():
     assert result.loc["WR", "rookie_ramp_factor"] == 0.96
     assert result.loc["RB", "rookie_ramp_factor"] == 1.0
     assert result.loc["Veteran", "rookie_ramp_factor"] == 1.0
+
+
+def test_team_environment_defaults_to_neutral():
+    df = pd.DataFrame([
+        {"player_name_clean": "Rookie", "position": "RB", "is_rookie": True},
+    ])
+    result = add_rookie_team_environment(df)
+    assert result.loc[0, "rookie_team_environment_multiplier"] == 1.0
+
+
+def test_composite_score_rewards_stronger_available_inputs():
+    df = pd.DataFrame([
+        {"player_name_clean": "Strong", "position": "WR", "team": "AAA", "status": "Active", "is_rookie": True, "draft_number": 8},
+        {"player_name_clean": "Weak", "position": "WR", "team": "BBB", "status": "Active", "is_rookie": True, "draft_number": 220},
+    ])
+    result = add_rookie_projection_components(df).set_index("player_name_clean")
+
+    assert result.loc["Strong", "rookie_projection_score"] > result.loc["Weak", "rookie_projection_score"]
+    assert result.loc["Strong", "rookie_prospect_profile_score"] == 50.0
+    assert result.loc["Weak", "rookie_team_environment_multiplier"] == 1.0
