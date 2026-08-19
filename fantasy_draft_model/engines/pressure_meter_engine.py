@@ -89,21 +89,21 @@ def calculate_pressure_score(
     # VORP PRESSURE
     # --------------------------------------------------------
 
-    max_vorp = (
-        df["vorp"]
-        .clip(
-            lower=0
+    vorp_values = (
+        pd.to_numeric(
+            df["vorp"],
+            errors="coerce",
         )
-        .max()
+        .fillna(0.0)
+        .clip(lower=0)
     )
+
+    max_vorp = vorp_values.max()
 
     if max_vorp > 0:
 
         df["vorp_pressure"] = (
-            df["vorp"]
-            .clip(
-                lower=0
-            )
+            vorp_values
             / max_vorp
             * 100
         )
@@ -118,7 +118,11 @@ def calculate_pressure_score(
     # --------------------------------------------------------
 
     df["value_pressure"] = (
-        df["draft_score"]
+        pd.to_numeric(
+            df["draft_score"],
+            errors="coerce",
+        )
+        .fillna(0.0)
         .clip(
             lower=0,
             upper=100
