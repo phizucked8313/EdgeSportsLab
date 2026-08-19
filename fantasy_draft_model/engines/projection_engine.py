@@ -737,6 +737,11 @@ def build_2026_projections():
 
     df = build_player_profiles()
 
+    if "is_fantasy_draftable" in df.columns:
+        df = df[
+            df["is_fantasy_draftable"] == True
+        ].copy()
+
     df = add_rookie_projection_components(
         df
     )
