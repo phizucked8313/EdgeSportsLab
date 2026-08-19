@@ -3,6 +3,10 @@ import pandas as pd
 
 from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.integrations.data_loader import load_weekly_player_stats
+from fantasy_draft_model.integrations.long_play_loader import (
+    LONG_PLAY_COUNTERS,
+    load_2025_long_play_counts,
+)
 from fantasy_draft_model.integrations.roster_loader import prepare_fantasy_rosters
 
 
@@ -341,6 +345,23 @@ def build_master_player_table():
                 "sum",
             ),
         )
+    )
+
+    long_play_counts = load_2025_long_play_counts()
+    master_df = master_df.merge(
+        long_play_counts,
+        on="player_id",
+        how="left",
+    )
+
+    for column in LONG_PLAY_COUNTERS:
+        if column not in master_df.columns:
+            master_df[column] = 0
+
+    master_df[LONG_PLAY_COUNTERS] = (
+        master_df[LONG_PLAY_COUNTERS]
+        .fillna(0)
+        .astype(int)
     )
 
     return master_df
