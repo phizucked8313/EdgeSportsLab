@@ -1,7 +1,9 @@
 import pandas as pd
 
+from fantasy_draft_model.integrations import long_play_loader
 from fantasy_draft_model.integrations.long_play_loader import (
     aggregate_long_play_counts,
+    load_2025_long_play_counts,
 )
 
 
@@ -28,3 +30,38 @@ def test_40_plus_play_counts_are_attributed_by_player_id():
     assert result.loc["RB1", "plays_40_rush_td"] == 1
     assert result.loc["RB2", "plays_40_rush"] == 1
     assert result.loc["RB2", "plays_40_rush_td"] == 0
+
+
+def test_load_2025_long_play_counts_uses_regular_season_only(monkeypatch):
+    calls = []
+
+    pbp = pd.DataFrame(
+        {
+            "season_type": ["REG", "POST"],
+            "yards_gained": [40, 60],
+            "complete_pass": [1, 1],
+            "pass_touchdown": [1, 1],
+            "rush_touchdown": [0, 0],
+            "passer_player_id": ["QB_REG", "QB_POST"],
+            "receiver_player_id": ["WR_REG", "WR_POST"],
+            "rusher_player_id": [None, None],
+        }
+    )
+
+    class FakeFrame:
+        def to_pandas(self):
+            return pbp.copy()
+
+    def fake_load_pbp(*, seasons):
+        calls.append(seasons)
+        return FakeFrame()
+
+    monkeypatch.setattr(long_play_loader.nfl, "load_pbp", fake_load_pbp)
+
+    result = load_2025_long_play_counts().set_index("player_id")
+
+    assert calls == [[2025]]
+    assert "QB_REG" in result.index
+    assert "WR_REG" in result.index
+    assert "QB_POST" not in result.index
+    assert "WR_POST" not in result.index
