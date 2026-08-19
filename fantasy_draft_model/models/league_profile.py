@@ -8,6 +8,7 @@ LEAGUES = {
     "Drunk Sundays": {
         "name": "Drunk Sundays",
         "league_key": "drunk_sundays",
+        "user_team": "BLKWDW'S",
         "keeper_rules": {
             "standard": 15,
             "rookie": 3,
@@ -43,6 +44,7 @@ LEAGUES = {
     "Somewhat Related": {
         "name": "Somewhat Related",
         "league_key": "somewhat_related",
+        "user_team": "Phizucked",
         "keeper_rules": {
             "standard": 16,
         },
