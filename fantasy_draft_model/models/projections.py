@@ -136,28 +136,40 @@ def prepare_weekly_data():
 
 def add_bonus_flags(df):
     """
-    Identify individual games that triggered
-    our fantasy league bonuses.
+    Identify individual games that triggered cumulative
+    yardage performance bonuses.
     """
 
     df = df.copy()
 
     df["game_300_pass"] = (
-        df["passing_yards"]
-        .fillna(0)
-        >= 300
+        df["passing_yards"].fillna(0) >= 300
+    ).astype(int)
+    df["game_400_pass"] = (
+        df["passing_yards"].fillna(0) >= 400
+    ).astype(int)
+    df["game_500_pass"] = (
+        df["passing_yards"].fillna(0) >= 500
     ).astype(int)
 
     df["game_100_rush"] = (
-        df["rushing_yards"]
-        .fillna(0)
-        >= 100
+        df["rushing_yards"].fillna(0) >= 100
+    ).astype(int)
+    df["game_200_rush"] = (
+        df["rushing_yards"].fillna(0) >= 200
+    ).astype(int)
+    df["game_300_rush"] = (
+        df["rushing_yards"].fillna(0) >= 300
     ).astype(int)
 
     df["game_100_receive"] = (
-        df["receiving_yards"]
-        .fillna(0)
-        >= 100
+        df["receiving_yards"].fillna(0) >= 100
+    ).astype(int)
+    df["game_200_receive"] = (
+        df["receiving_yards"].fillna(0) >= 200
+    ).astype(int)
+    df["game_300_receive"] = (
+        df["receiving_yards"].fillna(0) >= 300
     ).astype(int)
 
     return df
@@ -289,13 +301,43 @@ def build_master_player_table():
                 "sum",
             ),
 
+            games_400_pass=(
+                "game_400_pass",
+                "sum",
+            ),
+
+            games_500_pass=(
+                "game_500_pass",
+                "sum",
+            ),
+
             games_100_rush=(
                 "game_100_rush",
                 "sum",
             ),
 
+            games_200_rush=(
+                "game_200_rush",
+                "sum",
+            ),
+
+            games_300_rush=(
+                "game_300_rush",
+                "sum",
+            ),
+
             games_100_receive=(
                 "game_100_receive",
+                "sum",
+            ),
+
+            games_200_receive=(
+                "game_200_receive",
+                "sum",
+            ),
+
+            games_300_receive=(
+                "game_300_receive",
                 "sum",
             ),
         )
