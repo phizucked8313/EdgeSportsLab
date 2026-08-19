@@ -5,13 +5,63 @@ Version 1
 
 import pandas as pd
 
-# 12-team league replacement players
+from fantasy_draft_model.config import load_league_settings
+
+
+FLEX_ELIGIBLE_POSITIONS = ("RB", "WR")
+VORP_POSITIONS = ("QB", "RB", "WR", "TE")
+
+# Legacy replacement ranks remain in place until Task 3 wires the
+# dynamic calculation into calculate_vorp().
 REPLACEMENT_RANKS = {
     "QB": 12,
     "RB": 24,
     "WR": 24,
-    "TE": 12
+    "TE": 12,
 }
+
+
+def calculate_replacement_ranks(
+    df: pd.DataFrame,
+    league_settings=None,
+) -> dict[str, int]:
+    """Derive replacement ranks from lineup demand plus projected FLEX use."""
+
+    settings = league_settings or load_league_settings()
+    teams = int(settings["teams"])
+    lineup = settings["lineup"]
+
+    replacement_ranks = {
+        position: teams * int(lineup.get(position, 0))
+        for position in VORP_POSITIONS
+    }
+
+    flex_slots = teams * int(lineup.get("FLEX", 0))
+    flex_candidates = []
+
+    for position in FLEX_ELIGIBLE_POSITIONS:
+        mandatory = replacement_ranks[position]
+        players = (
+            df[df["position"] == position]
+            .sort_values("projected_points", ascending=False)
+            .copy()
+        )
+        flex_candidates.append(players.iloc[mandatory:])
+
+    if flex_slots > 0 and flex_candidates:
+        candidate_pool = pd.concat(flex_candidates, ignore_index=True)
+        selected = (
+            candidate_pool
+            .sort_values("projected_points", ascending=False)
+            .head(flex_slots)
+        )
+
+        for position in FLEX_ELIGIBLE_POSITIONS:
+            replacement_ranks[position] += int(
+                (selected["position"] == position).sum()
+            )
+
+    return replacement_ranks
 
 
 def calculate_vorp(df: pd.DataFrame):
