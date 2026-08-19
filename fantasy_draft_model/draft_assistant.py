@@ -1,8 +1,10 @@
 from fantasy_draft_model.rankings import build_draft_rankings
 from fantasy_draft_model.engines.draft_brain_engine import add_draft_brain
+from fantasy_draft_model.engines.pressure_meter_engine import add_pressure_meter
 
 
 def build_draft_assistant(
+    league_key,
     draft_context=None,
 ):
     """
@@ -17,9 +19,13 @@ def build_draft_assistant(
 
     print("\nBuilding EdgeIQ Draft Assistant...")
 
-    rankings = build_draft_rankings()
+    rankings = build_draft_rankings(
+        league_key
+    ).copy()
 
-    rankings = rankings.copy()
+    rankings = add_pressure_meter(
+        rankings
+    )
 
     # Draft Brain needs context such as:
     # picks_until_user
@@ -93,6 +99,7 @@ def main():
     }
 
     board = build_draft_assistant(
+        "drunk_sundays",
         draft_context=draft_context,
     )
 
