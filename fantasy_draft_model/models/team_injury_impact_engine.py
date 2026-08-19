@@ -3,9 +3,6 @@ import pandas as pd
 from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
 
 
-
-
-
 # ============================================================
 # EDGEIQ TEAM INJURY IMPACT ENGINE
 # ============================================================
@@ -49,6 +46,9 @@ POSITION_IMPACT = {
 
 STATUS_MULTIPLIER = {
     "Out": 1.00,
+    "IR": 1.00,
+    "PUP": 1.00,
+    "DNR": 1.00,
     "Doubtful": 0.85,
     "Questionable": 0.45,
     "Probable": 0.20,
@@ -192,33 +192,38 @@ def add_team_injury_impact(
         df["practice_status"] = ""
 
     if role_column and role_column in df.columns:
-        df["edgeiq_role"] = df[role_column]
+        df["edgeiq_role"] = (
+            df[role_column]
+            .fillna("UNKNOWN")
+            .astype(str)
+            .str.upper()
+        )
 
     else:
         # Load current depth charts and connect each injured player
         # to their real STARTER / BACKUP / DEPTH / DEEP_DEPTH role.
         depth_df = load_depth_charts()
 
-    # Build lookup using GSIS ID when available.
-    if "gsis_id" in df.columns and "gsis_id" in depth_df.columns:
-        role_lookup = (
-            depth_df[
-                ["gsis_id", "edgeiq_role"]
-            ]
-            .dropna(subset=["gsis_id"])
-            .drop_duplicates(subset=["gsis_id"])
-            .set_index("gsis_id")["edgeiq_role"]
-            .to_dict()
-        )
+        # Build lookup using GSIS ID when available.
+        if "gsis_id" in df.columns and "gsis_id" in depth_df.columns:
+            role_lookup = (
+                depth_df[
+                    ["gsis_id", "edgeiq_role"]
+                ]
+                .dropna(subset=["gsis_id"])
+                .drop_duplicates(subset=["gsis_id"])
+                .set_index("gsis_id")["edgeiq_role"]
+                .to_dict()
+            )
 
-        df["edgeiq_role"] = (
-            df["gsis_id"]
-            .map(role_lookup)
-            .fillna("UNKNOWN")
-        )
+            df["edgeiq_role"] = (
+                df["gsis_id"]
+                .map(role_lookup)
+                .fillna("UNKNOWN")
+            )
 
-    else:
-        df["edgeiq_role"] = "UNKNOWN"
+        else:
+            df["edgeiq_role"] = "UNKNOWN"
 
     df["injury_unit"] = (
         df["position"]
