@@ -12,6 +12,31 @@ FANTASY_POSITIONS = [
 ]
 
 
+def add_rookie_identity(df, current_season=CURRENT_SEASON):
+    """
+    Add EdgeIQ's canonical rookie identity flag.
+
+    A player is a rookie only when current roster metadata says
+    rookie_year equals the current NFL season. Missing historical
+    statistics or zero years of experience do not define rookie status.
+    """
+
+    df = df.copy()
+
+    if "rookie_year" not in df.columns:
+        df["is_rookie"] = False
+        return df
+
+    rookie_year = pd.to_numeric(
+        df["rookie_year"],
+        errors="coerce",
+    )
+
+    df["is_rookie"] = rookie_year.eq(current_season)
+
+    return df
+
+
 def load_current_rosters():
     """
     Load current NFL roster information for EdgeIQ.
@@ -80,9 +105,10 @@ def prepare_fantasy_rosters():
         .str.strip()
     )
 
-    # Mark rookies
-    df["is_rookie"] = (
-        df["rookie_year"] == CURRENT_SEASON
+    # Canonical current-season rookie identity
+    df = add_rookie_identity(
+        df,
+        current_season=CURRENT_SEASON,
     )
 
     # Remove duplicate roster records
