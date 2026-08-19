@@ -48,8 +48,12 @@ def add_fantasy_draftable_flag(df):
     Add a draftability flag without changing rookie identity.
 
     Draftable players must be on a current NFL roster, have a team,
-    play QB/RB/WR/TE, and have at least one meaningful signal:
-    prior NFL production, drafted-rookie capital, or active UDFA status.
+    play QB/RB/WR/TE, and have a meaningful fantasy signal:
+    prior NFL production or drafted-rookie capital.
+
+    Undrafted rookies remain correctly identified as rookies in the
+    master table but are not draftable by default. A later reliable
+    role/depth-chart signal can promote them without changing identity.
     Injury/reserve status by itself does not remove established players.
     """
 
@@ -67,35 +71,16 @@ def add_fantasy_draftable_flag(df):
         errors="coerce",
     ).fillna(0)
     rookie = _series_or_default(df, "is_rookie", False).fillna(False).astype(bool)
-    status = (
-        _series_or_default(df, "status", "")
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
 
     position_ok = position.isin(DRAFTABLE_POSITIONS)
     team_ok = team.notna() & team.astype(str).str.strip().ne("")
 
     prior_production = games > 0
     drafted_rookie = rookie & (draft_number > 0)
-    active_udfa_rookie = (
-        rookie
-        & draft_number.le(0)
-        & status.isin({"active", "act"})
-    )
 
     meaningful = (
         prior_production
         | drafted_rookie
-        | active_udfa_rookie
-    )
-
-    fringe_block = (
-        rookie
-        & draft_number.le(0)
-        & status.isin(NON_DRAFTABLE_FRINGE_STATUSES)
     )
 
     df["is_fantasy_draftable"] = (
@@ -103,7 +88,6 @@ def add_fantasy_draftable_flag(df):
         & team_ok
         & roster
         & meaningful
-        & ~fringe_block
     ).astype(bool)
 
     return df
