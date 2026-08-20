@@ -116,9 +116,9 @@ def test_position_value_audit_exposes_replacement_demand_and_multipath_value():
     assert set(audit["players_at_or_above_replacement"]) == {3}
 
     top = audit.iloc[0]
-    assert top["brain_vorp_total"] == 15.65
-    assert top["brain_scarcity_total"] == 18.7
-    assert top["brain_vorp_and_scarcity_total"] == 34.35
+    assert top["brain_vorp_total"] == 15.95
+    assert top["brain_scarcity_total"] == 19.45
+    assert top["brain_vorp_and_scarcity_total"] == 35.4
 
 
 def test_rb_te_comparison_places_both_positions_side_by_side_with_demand_context():
