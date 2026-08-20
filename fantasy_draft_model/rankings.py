@@ -93,25 +93,10 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     df = add_zero_based_vorp_score(df)
-    df = add_position_projection_score(df)
-    df["tier_scarcity_score"] = 0.0
-
-    df.loc[
-        df["tier_status"].isin(["ELITE SOLO TIER", "LAST PLAYER IN TIER"]),
-        "tier_scarcity_score",
-    ] = 100
-    df.loc[
-        df["tier_status"].isin(["SMALL TIER", "TIER ALMOST GONE"]),
-        "tier_scarcity_score",
-    ] = 80
-    df.loc[
-        df["tier_status"] == "LIMITED TIER",
-        "tier_scarcity_score",
-    ] = 60
-    df.loc[
-        df["tier_status"] == "DEPTH AVAILABLE",
-        "tier_scarcity_score",
-    ] = 35
+    if "projected_points" in df.columns:
+        df = add_position_projection_score(df)
+    if "tier_scarcity_score" not in df.columns:
+        df["tier_scarcity_score"] = 0.0
 
     df["draft_score"] = (
         df["vorp_score"] * 0.35
@@ -123,6 +108,21 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
 
     df["draft_score"] = df["draft_score"].clip(0, 100).round(2)
     return df
+
+
+def recalculate_live_draft_score(df: pd.DataFrame) -> pd.DataFrame:
+    """Recompute live draft scores without changing baseline draft order."""
+
+    result = df.copy()
+    baseline_rank = (
+        result["draft_rank"].copy()
+        if "draft_rank" in result.columns
+        else None
+    )
+    result = calculate_draft_score(result)
+    if baseline_rank is not None:
+        result["draft_rank"] = baseline_rank
+    return result
 
 
 # ============================================================
