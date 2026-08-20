@@ -57,7 +57,7 @@ def undo_latest_pick():
 
 
 def render_war_room_snapshot(st, snapshot):
-    """Render a read-only War Room snapshot with no draft-state mutation."""
+    """Render the current War Room snapshot."""
     context = snapshot["context"]
 
     st.metric("Current Pick", context.get("current_pick"))
@@ -77,8 +77,28 @@ def render_war_room_snapshot(st, snapshot):
     st.dataframe(snapshot["recent_history"], use_container_width=True)
 
 
+def render_draft_actions(st, snapshot):
+    """Render the live Record Pick and Undo Last Pick controls."""
+    filtered_available = snapshot["filtered_available"]
+    player_names = filtered_available["player_name_clean"].tolist()
+    selected_player = st.selectbox(
+        "Draft player",
+        player_names,
+        index=0,
+    )
+
+    if st.button("Record Pick", disabled=not player_names):
+        record_selected_player(snapshot["available"], selected_player)
+        st.rerun()
+
+    recent_history = snapshot["recent_history"]
+    if st.button("Undo Last Pick", disabled=recent_history.empty):
+        undo_latest_pick()
+        st.rerun()
+
+
 def run_war_room_ui(st):
-    """Collect read-only UI filters, build the live view, and render it."""
+    """Collect UI filters, build the live view, render it, and expose draft actions."""
     search_text = st.text_input("Search players", value="")
     position = st.selectbox("Position", POSITION_OPTIONS, index=0)
     snapshot = build_live_view(
@@ -86,6 +106,7 @@ def run_war_room_ui(st):
         position=position,
     )
     render_war_room_snapshot(st, snapshot)
+    render_draft_actions(st, snapshot)
 
 
 def main():
