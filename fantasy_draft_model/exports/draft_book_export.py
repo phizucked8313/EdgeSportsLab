@@ -108,17 +108,30 @@ def _pdf_text(value):
 
 def _pdf_pages(tables):
     title = "EDGEIQ EMERGENCY DRUNK SUNDAYS DRAFT BOOK"
-    columns = ["Overall Rank", "Player", "Position Rank", "Team", "Bye", "Position Tier", "Projected Points", "VORP", "EdgeScore", "Draft Score", "Availability", "BLKWDW Pick"]
     pages = []
     for section, table in tables.items():
-        selected = [column for column in columns if column in table.columns]
         chunks = [table.iloc[start:start + 38] for start in range(0, len(table), 38)] or [table]
         for chunk_number, chunk in enumerate(chunks, 1):
             lines = [title, f"{section} - page {chunk_number}", ""]
-            if selected:
-                lines.append(" | ".join(selected))
-                for row in chunk[selected].itertuples(index=False, name=None):
-                    lines.append(" | ".join(str(value)[:22] if pd.notna(value) else "" for value in row))
+            if "Overall Rank" in table.columns:
+                lines.append("RK | PLAYER               | POS  | TM  | BYE | T | PROJ   | VORP   | EDGE  | DRAFT | RISK | CURRENT INJURY       | STATUS | BLKWDW")
+                for _, row in chunk.iterrows():
+                    number = lambda name: f"{float(row[name]):.2f}" if pd.notna(row.get(name)) else ""
+                    tier = str(int(float(row["Position Tier"]))) if pd.notna(row.get("Position Tier")) else ""
+                    availability = "KEEPER" if row.get("Availability") == "UNAVAILABLE - KEEPER" else "AVAIL"
+                    lines.append(
+                        f"{str(row.get('Overall Rank', '')):>3} | "
+                        f"{str(row.get('Player', ''))[:20]:<20} | "
+                        f"{str(row.get('Position Rank', ''))[:4]:<4} | "
+                        f"{str(row.get('Team', ''))[:3]:<3} | "
+                        f"{str(row.get('Bye', ''))[:3]:>3} | "
+                        f"{tier:>2} | "
+                        f"{number('Projected Points'):>6} | {number('VORP'):>6} | "
+                        f"{number('EdgeScore'):>5} | {number('Draft Score'):>5} | "
+                        f"{number('Injury Risk'):>4} | "
+                        f"{str(row.get('Current Injury', ''))[:25]:<25} | "
+                        f"{availability:<6} | {str(row.get('BLKWDW Pick', ''))}"
+                    )
             else:
                 lines.append(" | ".join(map(str, table.columns)))
                 for row in chunk.itertuples(index=False, name=None):

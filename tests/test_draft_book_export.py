@@ -97,6 +97,7 @@ def test_csv_xlsx_and_pdf_exports_are_complete_and_printable(tmp_path):
     assert pdf_bytes.endswith(b"%%EOF\n")
     assert pdf_bytes.count(b"/Type /Page ") >= 8
     assert b"EDGEIQ EMERGENCY DRUNK SUNDAYS DRAFT BOOK" in pdf_bytes
+    assert b"Questionable - Knee" in pdf_bytes
 
 
 def test_package_builder_uses_existing_rankings_and_writes_manifest(tmp_path):
