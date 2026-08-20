@@ -55,7 +55,7 @@ The same threshold is applied at every tier depth. That is acceptable near the t
 
 The current War Room flow builds Pressure and Draft Brain from the full rankings board, then removes drafted players and keepers afterward when the UI snapshot is built. That means live board pressure and any future "players remaining in tier" calculation can still see unavailable players.
 
-The redesigned tier system must calculate live scarcity from the available board before Pressure and Draft Brain run.
+The redesigned tier system must calculate live scarcity from the available board before live Draft Score, Pressure, and Draft Brain run.
 
 ## Tier Assignment
 
@@ -100,8 +100,10 @@ The tier engine should expose these fields:
 - `tier`: integer tier number within position
 - `tier_size`: number of players assigned to the base tier
 - `tier_drop`: projected-point drop from the previous player
+- `tier_vorp_drop`: VORP drop from the previous player
 - `tier_threshold`: threshold that applied when evaluating that player boundary
-- `tier_next_drop`: projected-point drop from the final player in the current tier to the first player in the next tier; zero when no next tier exists
+- `tier_next_projection_drop`: projected-point drop from the final player in the current tier to the first player in the next tier; zero when no next tier exists
+- `tier_next_vorp_drop`: VORP drop from the final player in the current tier to the first player in the next tier; zero when no next tier exists
 
 The descriptive `tier_status` field will be removed from ranking logic and draft-night display after consumers are migrated.
 
@@ -109,7 +111,7 @@ The descriptive `tier_status` field will be removed from ranking logic and draft
 
 Base tiers are assigned once from the full ranking board and remain stable throughout the draft.
 
-Before Pressure and Draft Brain are calculated, EdgeIQ must remove:
+Before live Draft Score, Pressure, and Draft Brain are calculated, EdgeIQ must remove:
 
 - manually drafted players
 - keeper-reserved players
@@ -160,9 +162,17 @@ Examples:
 
 ### Next-tier drop pressure
 
-`drop_pressure = min(100, 100 * tier_next_drop / effective_next_threshold)`
+Tier creation can be triggered by either projected-point separation or VORP separation, so live drop pressure must respect both signals.
 
-This measures whether the drop after the current tier is large relative to the threshold required to create the next tier.
+For the current tier:
+
+`projection_drop_pressure = min(100, 100 * tier_next_projection_drop / effective_next_threshold)`
+
+`vorp_drop_pressure = min(100, 100 * tier_next_vorp_drop / effective_next_threshold)`
+
+`drop_pressure = max(projection_drop_pressure, vorp_drop_pressure)`
+
+This prevents a tier created by a meaningful VORP gap from appearing unimportant merely because its projected-point gap was smaller.
 
 ### Final tier scarcity
 
@@ -176,7 +186,11 @@ This deliberately prevents a singleton in a late tier from receiving a 100 scarc
 
 ### Rankings
 
-`calculate_draft_score` keeps its current 10% tier-scarcity weight, but consumes the numeric `tier_scarcity_score` produced by the new tier logic instead of mapping from `tier_status`.
+`calculate_draft_score` keeps its current 10% tier-scarcity weight, but consumes numeric `tier_scarcity_score` instead of mapping from `tier_status`.
+
+At base-ranking build time, `tier_remaining` defaults to `tier_size`, producing the pre-draft Draft Score and baseline `draft_rank`.
+
+In the live War Room, after unavailable players are removed and `tier_remaining` is recomputed, Draft Score is recalculated with the live `tier_scarcity_score`. The original baseline `draft_rank` is preserved as a reference column; the live War Room remains sorted by Draft Brain.
 
 No other Draft Score weights change in this redesign.
 
@@ -208,16 +222,19 @@ It will no longer use `Last player remaining in current tier` as evidence that a
 
 The live flow will become:
 
-1. Load or reuse cached base rankings with stable numbered tiers.
+1. Load or reuse cached base rankings with stable numbered tiers and baseline `draft_rank`.
 2. Remove drafted players and keeper-reserved players.
 3. Compute `tier_remaining` on the available board.
-4. Recompute live `tier_scarcity_score` using remaining players and next-tier drop.
-5. Run Pressure Meter on the available board.
-6. Run Draft Brain on the available board.
-7. Sort by live `brain_score`.
-8. Apply search/position display filters only after scoring.
+4. Recompute live `tier_scarcity_score` using remaining players and next-tier projection/VORP gaps.
+5. Recompute live Draft Score from the available board while preserving baseline `draft_rank`.
+6. Run Pressure Meter on the available board.
+7. Run Draft Brain on the available board.
+8. Sort by live `brain_score`.
+9. Apply search/position display filters only after scoring.
 
-This order is required so Pressure, run urgency, wait analysis, and tier scarcity operate on players who can actually be drafted.
+This order is required so Draft Score, Pressure, wait analysis, tier scarcity, and Draft Brain operate on players who can actually be drafted.
+
+The War Room should reuse the existing availability helper rather than create a second player-name filtering implementation.
 
 ## UI Changes
 
@@ -245,6 +262,7 @@ The migration should be completed in one branch before removing `tier_status` fr
 - Empty position groups return without failure.
 - Missing `tier_remaining` in non-live contexts should default to `tier_size`.
 - `tier_remaining <= 0` must not cause division by zero; unavailable players should normally have been removed before live scoring.
+- Missing next-tier gaps at the final tier should produce zero drop pressure rather than an exception.
 - Draft completion, where `picks_until_user` can be `None`, must be handled safely while touching Draft Brain live-context code.
 
 ## Testing Strategy
@@ -259,15 +277,17 @@ Required tests:
 4. Tier 3 uses 1.50x base threshold.
 5. Tier 4+ uses 1.75x base threshold.
 6. Either projection drop or VORP drop can create a new tier.
-7. A late singleton does not receive Tier 1 scarcity.
-8. `tier_remaining` shrinks when drafted/keeper players are removed while base `tier` remains unchanged.
-9. Draft Score consumes numeric `tier_scarcity_score`.
-10. Pressure Meter consumes the same numeric `tier_scarcity_score`.
-11. Draft Brain consumes the same numeric `tier_scarcity_score`.
-12. Brain reasons name the player's position tier and remaining count correctly.
-13. Available-player filtering occurs before live Pressure/Brain scoring.
-14. Existing ranking, keeper, War Room, performance, explanation, and draft-order regression suites remain green.
-15. Draft completion does not crash when `picks_until_user` is `None`.
+7. Next-tier scarcity respects both projection and VORP separation.
+8. A late singleton does not receive Tier 1 scarcity.
+9. `tier_remaining` shrinks when drafted/keeper players are removed while base `tier` remains unchanged.
+10. Base Draft Score uses numeric `tier_scarcity_score` with `tier_remaining = tier_size`.
+11. Live Draft Score is recalculated from live `tier_scarcity_score` without overwriting baseline `draft_rank`.
+12. Pressure Meter consumes the same live numeric `tier_scarcity_score`.
+13. Draft Brain consumes the same live numeric `tier_scarcity_score`.
+14. Brain reasons name the player's position tier and remaining count correctly.
+15. Available-player filtering occurs before live Draft Score/Pressure/Brain scoring.
+16. Existing ranking, keeper, War Room, performance, explanation, and draft-order regression suites remain green.
+17. Draft completion does not crash when `picks_until_user` is `None`.
 
 ## Acceptance Criteria
 
@@ -278,6 +298,7 @@ The redesign is complete when:
 - Progressive thresholds are used exactly as specified.
 - Later singleton tiers no longer receive elite-level scarcity solely because tier size is one.
 - Live scarcity reflects only available players.
-- Rankings, Pressure, Draft Brain, and explanations all consume the same numeric scarcity signal.
+- Live Draft Score, Pressure, Draft Brain, and explanations all consume the same live numeric scarcity signal.
+- Baseline `draft_rank` remains available for pre-draft/reference comparisons.
 - The War Room remains fast enough for draft-night use and existing performance tests remain green.
 - Full regression passes before the feature is considered draft-ready.
