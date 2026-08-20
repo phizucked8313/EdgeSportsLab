@@ -13,6 +13,7 @@ from fantasy_draft_model.live_war_room import (
 )
 from fantasy_draft_model.ui.draft_war_room import (
     build_live_draft_context,
+    build_player_ranking_explanation,
     build_static_available_board_html,
     build_war_room_snapshot,
 )
@@ -118,6 +119,56 @@ def render_war_room_snapshot(st, snapshot):
     )
 
 
+def render_player_explanation(st, snapshot):
+    """Render a readable explanation for one selected live-ranked player."""
+    filtered_available = snapshot.get("filtered_available")
+    available = snapshot.get("available")
+    if filtered_available is None or available is None or filtered_available.empty:
+        return
+
+    player_names = filtered_available["player_name_clean"].tolist()
+    selected_player = st.selectbox(
+        "Explain player",
+        player_names,
+        index=0,
+    )
+    explanation = build_player_ranking_explanation(available, selected_player)
+
+    st.subheader(f"Why EdgeIQ ranks {explanation['player_name']} here")
+    st.markdown(
+        f"**#{explanation['draft_rank']} · {explanation['brain_score']:.1f} Draft Brain · "
+        f"{explanation['recommendation']}**"
+    )
+
+    numbers = explanation["key_numbers"]
+    st.markdown(
+        "**Key numbers:** "
+        f"{numbers['projected_points']:.2f} projected pts · "
+        f"{numbers['vorp']:.2f} VORP · "
+        f"{numbers['edgescore']:.2f} EdgeScore · "
+        f"{numbers['projection_confidence']:.2f}% confidence · "
+        f"{numbers['injury_risk_score']:.1f} injury risk"
+    )
+
+    drivers = explanation["drivers"]
+    if drivers:
+        st.markdown("**Why EdgeIQ likes him:** " + " · ".join(drivers))
+
+    warnings = explanation["warnings"]
+    if warnings:
+        st.markdown("**Warnings:** " + " · ".join(warnings))
+
+    comparison = explanation["comparison"]
+    if comparison:
+        st.markdown(
+            f"**Why above {comparison['player_name']}:** "
+            f"{comparison['brain_score_delta']:+.2f} Brain · "
+            f"{comparison['projected_points_delta']:+.2f} projected pts · "
+            f"{comparison['vorp_delta']:+.2f} VORP · "
+            f"{comparison['edgescore_delta']:+.2f} EdgeScore"
+        )
+
+
 def render_draft_actions(st, snapshot):
     """Render Record Pick in a form so selection changes do not rerun the app."""
     filtered_available = snapshot["filtered_available"]
@@ -180,6 +231,7 @@ def run_war_room_ui(st):
         )
 
     render_war_room_snapshot(st, snapshot)
+    render_player_explanation(st, snapshot)
     render_draft_actions(st, snapshot)
 
 
