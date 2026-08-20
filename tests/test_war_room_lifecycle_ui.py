@@ -1,5 +1,8 @@
 from dataclasses import replace
 
+import pandas as pd
+import pytest
+
 from fantasy_draft_model.draft_lifecycle import LifecycleInspection
 from fantasy_draft_model.rankings_snapshot import RankingRefreshError
 from fantasy_draft_model.ui import streamlit_app
@@ -163,3 +166,84 @@ def test_rankings_failure_shows_retry_and_runbook_without_player_board(monkeypat
 
     assert fake_st.button_calls["Retry"]["disabled"] is False
     assert "runbook" in fake_st.rendered_text.lower()
+
+
+def test_state_swap_after_authorization_returns_to_lifecycle_gate_before_board(
+    monkeypatch,
+):
+    fake_st = FakeStreamlit()
+    fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] = "draft-a"
+    inspections = iter([_inspection("draft-a"), _inspection("draft-b")])
+    replacement_state = {"draft_id": "draft-b", "league_key": "drunk_sundays"}
+    board = pd.DataFrame([{"player_name_clean": "Alpha WR", "position": "WR"}])
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "inspect_draft_lifecycle",
+        lambda _path: next(inspections),
+    )
+    monkeypatch.setattr(streamlit_app, "load_or_initialize_war_room_state", lambda: replacement_state)
+    monkeypatch.setattr(streamlit_app, "get_or_build_base_rankings", lambda *_args, **_kwargs: board)
+    monkeypatch.setattr(streamlit_app, "build_live_draft_context", lambda _state: {})
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_draft_assistant_from_rankings",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("replacement board must not build")),
+    )
+
+    streamlit_app.run_war_room_ui(fake_st)
+
+    assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
+    assert "draft-b" in fake_st.rendered_text
+
+
+def test_stale_authorized_record_does_not_mutate_replacement_draft(monkeypatch):
+    fake_st = FakeStreamlit()
+    fake_st.button_values["Record Pick"] = True
+    fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] = "draft-a"
+    available = pd.DataFrame([{"player_name_clean": "Alpha WR", "position": "WR"}])
+    replacement_state = {"draft_id": "draft-b"}
+    monkeypatch.setattr(streamlit_app, "load_war_room_state", lambda: replacement_state)
+    monkeypatch.setattr(
+        streamlit_app,
+        "record_manual_pick",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("replacement draft must not mutate")),
+    )
+
+    streamlit_app.render_draft_actions(
+        fake_st,
+        {"available": available, "filtered_available": available, "recent_history": pd.DataFrame()},
+        expected_draft_id="draft-a",
+    )
+
+    assert fake_st.rerun_count == 0
+    assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
+    assert any(kind == "error" and "changed" in text for kind, text in fake_st.messages)
+
+
+def test_stale_authorized_undo_does_not_mutate_replacement_draft(monkeypatch):
+    fake_st = FakeStreamlit()
+    fake_st.button_values["Undo Last Pick"] = True
+    fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] = "draft-a"
+    available = pd.DataFrame([{"player_name_clean": "Alpha WR", "position": "WR"}])
+    replacement_state = {"draft_id": "draft-b"}
+    monkeypatch.setattr(streamlit_app, "load_war_room_state", lambda: replacement_state)
+    monkeypatch.setattr(
+        streamlit_app,
+        "undo_last_manual_pick",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("replacement draft must not mutate")),
+    )
+
+    streamlit_app.render_draft_actions(
+        fake_st,
+        {
+            "available": available,
+            "filtered_available": available,
+            "recent_history": pd.DataFrame([{"pick_number": 1}]),
+        },
+        expected_draft_id="draft-a",
+    )
+
+    assert fake_st.rerun_count == 0
+    assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
+    assert any(kind == "error" and "changed" in text for kind, text in fake_st.messages)

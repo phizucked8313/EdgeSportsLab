@@ -272,9 +272,10 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
         captured["st"] = st
         captured["snapshot"] = supplied_snapshot
 
-    def fake_actions(st, supplied_snapshot):
+    def fake_actions(st, supplied_snapshot, **kwargs):
         captured["actions_st"] = st
         captured["actions_snapshot"] = supplied_snapshot
+        captured["actions_expected_draft_id"] = kwargs["expected_draft_id"]
 
     monkeypatch.setattr(
         streamlit_app,
@@ -312,6 +313,7 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
     assert captured["snapshot"] is snapshot
     assert captured["actions_st"] is fake_st
     assert captured["actions_snapshot"] is snapshot
+    assert captured["actions_expected_draft_id"] == "draft-1"
 
 
 def test_record_selected_player_uses_fresh_state_and_core_recorder(monkeypatch):
@@ -398,7 +400,7 @@ def test_render_draft_actions_records_selected_player_and_reruns(monkeypatch):
     }
     captured = {}
 
-    def fake_record(supplied_available, player_name):
+    def fake_record(supplied_available, player_name, **_kwargs):
         captured["available"] = supplied_available
         captured["player_name"] = player_name
         return {"player_name": player_name, "pick_number": 10}
@@ -428,7 +430,7 @@ def test_render_draft_actions_undoes_latest_pick_and_reruns(monkeypatch):
     removed = {"player_name": "Alpha WR", "pick_number": 10}
     captured = {}
 
-    def fake_undo():
+    def fake_undo(**_kwargs):
         captured["called"] = True
         return removed
 

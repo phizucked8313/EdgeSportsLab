@@ -1,7 +1,9 @@
 import pandas as pd
+import pytest
 
 from fantasy_draft_model.rankings_snapshot import RankingDataStatus
 from fantasy_draft_model.ui import streamlit_app
+from fantasy_draft_model.war_room_state import StateValidationError
 
 
 class FakeStreamlit:
@@ -9,6 +11,9 @@ class FakeStreamlit:
         self.messages = []
         self.rendered_text = ""
         self.button_calls = {}
+        self.button_values = {}
+        self.rerun_count = 0
+        self.session_state = {streamlit_app.DRAFT_AUTHORIZATION_KEY: "draft-1"}
 
     def success(self, text):
         self.messages.append(("success", text))
@@ -33,7 +38,13 @@ class FakeStreamlit:
 
     def button(self, label, disabled=False):
         self.button_calls[label] = {"disabled": disabled}
-        return False
+        return not disabled and self.button_values.get(label, False)
+
+    def error(self, text):
+        self.messages.append(("error", text))
+
+    def rerun(self):
+        self.rerun_count += 1
 
 
 def _complete_snapshot():
@@ -93,3 +104,46 @@ def test_rankings_status_displays_cached_age_and_failure_reason():
     assert status.created_at in fake_st.rendered_text
     assert "90s old" in fake_st.rendered_text
     assert status.failure_reason in fake_st.rendered_text
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"), StateValidationError(["state write failed"])])
+def test_record_persistence_failure_renders_error_without_rerun_or_deauthorization(
+    monkeypatch,
+    error,
+):
+    fake_st = FakeStreamlit()
+    fake_st.button_values["Record Pick"] = True
+    snapshot = _complete_snapshot()
+    snapshot["context"] = {"draft_complete": False}
+    monkeypatch.setattr(
+        streamlit_app,
+        "record_selected_player",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    streamlit_app.render_draft_actions(fake_st, snapshot, expected_draft_id="draft-1")
+
+    assert fake_st.rerun_count == 0
+    assert fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] == "draft-1"
+    assert any(kind == "error" and "not recorded" in text for kind, text in fake_st.messages)
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"), StateValidationError(["state write failed"])])
+def test_undo_persistence_failure_renders_error_without_rerun_or_deauthorization(
+    monkeypatch,
+    error,
+):
+    fake_st = FakeStreamlit()
+    fake_st.button_values["Undo Last Pick"] = True
+    snapshot = _complete_snapshot()
+    monkeypatch.setattr(
+        streamlit_app,
+        "undo_latest_pick",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    streamlit_app.render_draft_actions(fake_st, snapshot, expected_draft_id="draft-1")
+
+    assert fake_st.rerun_count == 0
+    assert fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] == "draft-1"
+    assert any(kind == "error" and "not undone" in text for kind, text in fake_st.messages)

@@ -48,6 +48,19 @@ DRAFT_AUTHORIZATION_KEY = "_edgeiq_authorized_draft_id"
 RECOVERY_REQUEST_KEY = "_edgeiq_recovery_requested"
 
 
+class DraftAuthorizationError(RuntimeError):
+    """Raised when the authoritative draft changed after UI authorization."""
+
+
+def _require_authorized_draft(state, expected_draft_id):
+    if expected_draft_id is None:
+        return
+    if state.get("draft_id") != expected_draft_id:
+        raise DraftAuthorizationError(
+            "Draft state changed on disk. Return to the lifecycle gate before continuing."
+        )
+
+
 def load_or_initialize_war_room_state():
     """Load only an existing authoritative War Room state.
 
@@ -87,6 +100,7 @@ def build_live_view(
     position=None,
     base_rankings=None,
     data_status=None,
+    expected_draft_id=None,
     *,
     paths=None,
     builder=None,
@@ -94,6 +108,7 @@ def build_live_view(
 ):
     """Build the War Room snapshot using fresh live context and optional cached rankings."""
     state = load_or_initialize_war_room_state()
+    _require_authorized_draft(state, expected_draft_id)
     context = build_live_draft_context(state)
 
     if base_rankings is None:
@@ -135,7 +150,7 @@ def build_live_view(
     return snapshot
 
 
-def record_selected_player(available_players, player_name):
+def record_selected_player(available_players, player_name, *, expected_draft_id=None):
     """Record one selected available player using fresh persisted War Room state."""
     selected_name = str(player_name).strip()
     normalized_name = selected_name.casefold()
@@ -151,12 +166,14 @@ def record_selected_player(available_players, player_name):
         raise ValueError(f"{selected_name} is not available")
 
     state = load_war_room_state()
+    _require_authorized_draft(state, expected_draft_id)
     return record_manual_pick(state, matches.iloc[0])
 
 
-def undo_latest_pick():
+def undo_latest_pick(*, expected_draft_id=None):
     """Undo the latest manual pick using fresh persisted War Room state."""
     state = load_war_room_state()
+    _require_authorized_draft(state, expected_draft_id)
     return undo_last_manual_pick(state)
 
 
@@ -265,6 +282,19 @@ def _render_lifecycle_error(st, error):
     _render_status_text(st, f"Archive/recovery path: {DRAFT_ARCHIVE_ROOT}")
 
 
+def _return_to_lifecycle_gate(st, error):
+    """Drop stale authorization and render the current non-mutating gate."""
+    st.session_state.pop(DRAFT_AUTHORIZATION_KEY, None)
+    st.error(str(error))
+    try:
+        inspection = inspect_draft_lifecycle(DEFAULT_STATE_PATH)
+    except (StateLoadError, StateValidationError, ValueError) as inspection_error:
+        _render_lifecycle_error(st, inspection_error)
+        return
+    render_state_recovery(st, inspection)
+    render_lifecycle_gate(st, inspection)
+
+
 def _render_rankings_startup_error(st, error):
     st.error(f"Rankings unavailable: {error}")
     st.info("Retry after restoring a live data connection or a validated rankings cache. See the draft-night runbook before recording picks.")
@@ -332,7 +362,7 @@ def render_player_explanation(st, snapshot):
         )
 
 
-def render_draft_actions(st, snapshot):
+def render_draft_actions(st, snapshot, *, expected_draft_id=None):
     """Render Record Pick in a form so selection changes do not rerun the app."""
     filtered_available = snapshot["filtered_available"]
     player_names = filtered_available["player_name_clean"].tolist()
@@ -359,8 +389,15 @@ def render_draft_actions(st, snapshot):
 
     if record_pick:
         try:
-            record_selected_player(snapshot["available"], selected_player)
-        except (DraftCompleteError, StateLoadError, StateValidationError, ValueError) as error:
+            record_selected_player(
+                snapshot["available"],
+                selected_player,
+                expected_draft_id=expected_draft_id,
+            )
+        except DraftAuthorizationError as error:
+            st.session_state.pop(DRAFT_AUTHORIZATION_KEY, None)
+            st.error(str(error))
+        except (OSError, DraftCompleteError, StateLoadError, StateValidationError, ValueError) as error:
             st.error(f"Pick was not recorded: {error}")
         else:
             st.rerun()
@@ -368,8 +405,11 @@ def render_draft_actions(st, snapshot):
     recent_history = snapshot["recent_history"]
     if st.button("Undo Last Pick", disabled=recent_history.empty):
         try:
-            undo_latest_pick()
-        except (StateLoadError, StateValidationError, ValueError) as error:
+            undo_latest_pick(expected_draft_id=expected_draft_id)
+        except DraftAuthorizationError as error:
+            st.session_state.pop(DRAFT_AUTHORIZATION_KEY, None)
+            st.error(str(error))
+        except (OSError, StateLoadError, StateValidationError, ValueError) as error:
             st.error(f"Pick was not undone: {error}")
         else:
             st.rerun()
@@ -448,22 +488,28 @@ def run_war_room_ui(st):
             return
         data_status = status_cache.get(state["league_key"])
 
-    if base_rankings is None:
-        snapshot = build_live_view(
-            search_text=search_text,
-            position=position,
-        )
-    else:
-        snapshot = build_live_view(
-            search_text=search_text,
-            position=position,
-            base_rankings=base_rankings,
-            data_status=data_status,
-        )
+    try:
+        if base_rankings is None:
+            snapshot = build_live_view(
+                search_text=search_text,
+                position=position,
+                expected_draft_id=authorized_draft_id,
+            )
+        else:
+            snapshot = build_live_view(
+                search_text=search_text,
+                position=position,
+                base_rankings=base_rankings,
+                data_status=data_status,
+                expected_draft_id=authorized_draft_id,
+            )
+    except DraftAuthorizationError as error:
+        _return_to_lifecycle_gate(st, error)
+        return
 
     render_war_room_snapshot(st, snapshot)
     render_player_explanation(st, snapshot)
-    render_draft_actions(st, snapshot)
+    render_draft_actions(st, snapshot, expected_draft_id=authorized_draft_id)
 
 
 def main():
