@@ -357,8 +357,8 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         .isin(POSITION_TIER_THRESHOLDS)
     )
     tierless_mask = tier_values.isna() | tier_values.le(0) | ~supported_position
-    df["tier"] = df["tier"].mask(tierless_mask, pd.NA)
-    tier_values = tier_values.mask(tierless_mask)
+    tier_values = tier_values.mask(tierless_mask).astype("Int64")
+    df["tier"] = tier_values
 
     df["tier_remaining"] = (
         df.groupby(["position", "tier"], dropna=False)["tier"]

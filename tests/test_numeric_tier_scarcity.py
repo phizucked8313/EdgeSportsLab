@@ -76,8 +76,17 @@ def test_full_tier_pipeline_keeps_unsupported_positions_tierless_and_neutral():
     assert unsupported["tier_scarcity_score"].eq(0.0).all()
 
 
-def test_live_scarcity_normalizes_unsupported_tier_zero_to_tierless_neutral():
+def test_live_scarcity_normalizes_invalid_tiers_to_nullable_integer_and_neutral():
     df = pd.DataFrame([
+        {
+            "player_name_clean": "RB Valid",
+            "position": "RB",
+            "tier": 1,
+            "tier_size": 1,
+            "tier_next_threshold": 14.0,
+            "tier_next_projection_drop": 14.0,
+            "tier_next_vorp_drop": 0.0,
+        },
         {
             "player_name_clean": "K Legacy",
             "position": "K",
@@ -88,9 +97,36 @@ def test_live_scarcity_normalizes_unsupported_tier_zero_to_tierless_neutral():
             "tier_next_vorp_drop": 30.0,
         },
         {
-            "player_name_clean": "DEF Legacy",
+            "player_name_clean": "DEF Negative",
             "position": "DEF",
+            "tier": -1,
+            "tier_size": 1,
+            "tier_next_threshold": 15.0,
+            "tier_next_projection_drop": 30.0,
+            "tier_next_vorp_drop": 30.0,
+        },
+        {
+            "player_name_clean": "RB Invalid Zero",
+            "position": "RB",
             "tier": 0,
+            "tier_size": 1,
+            "tier_next_threshold": 14.0,
+            "tier_next_projection_drop": 28.0,
+            "tier_next_vorp_drop": 28.0,
+        },
+        {
+            "player_name_clean": "TE Invalid Negative",
+            "position": "TE",
+            "tier": -2,
+            "tier_size": 1,
+            "tier_next_threshold": 12.0,
+            "tier_next_projection_drop": 24.0,
+            "tier_next_vorp_drop": 24.0,
+        },
+        {
+            "player_name_clean": "K Invalid Positive",
+            "position": "K",
+            "tier": 3,
             "tier_size": 1,
             "tier_next_threshold": 15.0,
             "tier_next_projection_drop": 30.0,
@@ -98,11 +134,29 @@ def test_live_scarcity_normalizes_unsupported_tier_zero_to_tierless_neutral():
         },
     ])
 
-    result = add_live_tier_scarcity(df)
+    result = add_live_tier_scarcity(df).set_index("player_name_clean")
+    invalid_names = [
+        "K Legacy",
+        "DEF Negative",
+        "RB Invalid Zero",
+        "TE Invalid Negative",
+        "K Invalid Positive",
+    ]
 
-    assert result["tier"].isna().all()
-    assert result["tier_remaining"].eq(0).all()
-    assert result["tier_scarcity_score"].eq(0.0).all()
+    assert result["tier"].dtype == pd.Int64Dtype()
+    assert result.loc["RB Valid", "tier"] == 1
+    assert result.loc[invalid_names, "tier"].isna().all()
+    assert result.loc[invalid_names, "tier_remaining"].eq(0).all()
+    assert result.loc[invalid_names, "tier_scarcity_score"].eq(0.0).all()
+
+
+def test_live_scarcity_handles_empty_board_with_nullable_tier_dtype():
+    result = add_live_tier_scarcity(pd.DataFrame(columns=["position", "tier"]))
+
+    assert result.empty
+    assert result["tier"].dtype == pd.Int64Dtype()
+    assert "tier_remaining" in result.columns
+    assert "tier_scarcity_score" in result.columns
 
 
 def test_late_singleton_is_capped_by_tier_depth():
