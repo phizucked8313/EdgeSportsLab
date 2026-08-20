@@ -8,6 +8,7 @@ from fantasy_draft_model.live_war_room import (
     undo_last_manual_pick,
 )
 from fantasy_draft_model.ui.draft_war_room import (
+    build_available_player_display,
     build_live_draft_context,
     build_war_room_snapshot,
 )
@@ -77,13 +78,25 @@ def render_war_room_snapshot(st, snapshot):
         st.success("BLKWDW'S is on the clock")
 
     st.subheader("Available Players")
-    st.dataframe(snapshot["filtered_available"], use_container_width=True)
+    st.dataframe(
+        build_available_player_display(snapshot["filtered_available"]),
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.subheader("Your Roster")
-    st.dataframe(snapshot["roster"], use_container_width=True)
+    st.dataframe(
+        snapshot["roster"],
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.subheader("Recent Draft History")
-    st.dataframe(snapshot["recent_history"], use_container_width=True)
+    st.dataframe(
+        snapshot["recent_history"],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def render_draft_actions(st, snapshot):
