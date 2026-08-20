@@ -76,6 +76,35 @@ def test_full_tier_pipeline_keeps_unsupported_positions_tierless_and_neutral():
     assert unsupported["tier_scarcity_score"].eq(0.0).all()
 
 
+def test_live_scarcity_normalizes_unsupported_tier_zero_to_tierless_neutral():
+    df = pd.DataFrame([
+        {
+            "player_name_clean": "K Legacy",
+            "position": "K",
+            "tier": 0,
+            "tier_size": 1,
+            "tier_next_threshold": 15.0,
+            "tier_next_projection_drop": 30.0,
+            "tier_next_vorp_drop": 30.0,
+        },
+        {
+            "player_name_clean": "DEF Legacy",
+            "position": "DEF",
+            "tier": 0,
+            "tier_size": 1,
+            "tier_next_threshold": 15.0,
+            "tier_next_projection_drop": 30.0,
+            "tier_next_vorp_drop": 30.0,
+        },
+    ])
+
+    result = add_live_tier_scarcity(df)
+
+    assert result["tier"].isna().all()
+    assert result["tier_remaining"].eq(0).all()
+    assert result["tier_scarcity_score"].eq(0.0).all()
+
+
 def test_late_singleton_is_capped_by_tier_depth():
     df = pd.DataFrame([
         {"player_name_clean": "RB Tier1", "position": "RB", "tier": 1, "tier_size": 1,

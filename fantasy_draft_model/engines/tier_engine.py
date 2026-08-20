@@ -348,14 +348,24 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
     if "tier" not in df.columns:
         df["tier"] = pd.NA
 
+    tier_values = pd.to_numeric(df["tier"], errors="coerce")
+    supported_position = (
+        df.get("position", pd.Series("", index=df.index))
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .isin(POSITION_TIER_THRESHOLDS)
+    )
+    tierless_mask = tier_values.isna() | tier_values.le(0) | ~supported_position
+    df["tier"] = df["tier"].mask(tierless_mask, pd.NA)
+    tier_values = tier_values.mask(tierless_mask)
+
     df["tier_remaining"] = (
         df.groupby(["position", "tier"], dropna=False)["tier"]
         .transform("size")
         .astype(int)
     )
 
-    tier_values = pd.to_numeric(df["tier"], errors="coerce")
-    tierless_mask = tier_values.isna()
     df.loc[tierless_mask, "tier_remaining"] = 0
 
     tier_remaining = df["tier_remaining"]
