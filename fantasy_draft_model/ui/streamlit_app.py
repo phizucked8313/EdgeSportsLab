@@ -140,6 +140,13 @@ def render_player_explanation(st, snapshot):
         f"{explanation['recommendation']}**"
     )
 
+    tier_label = explanation["tier_label"]
+    if tier_label:
+        st.markdown(
+            f"**{tier_label}:** {explanation['tier_remaining']} remaining · "
+            f"{explanation['tier_scarcity_score']:.2f} scarcity"
+        )
+
     numbers = explanation["key_numbers"]
     st.markdown(
         "**Key numbers:** "

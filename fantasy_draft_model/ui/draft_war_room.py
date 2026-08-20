@@ -18,7 +18,9 @@ DRAFT_NIGHT_COLUMNS = [
     "position",
     "team",
     "position_rank_label",
-    "tier",
+    "tier_label",
+    "tier_remaining",
+    "tier_scarcity_score",
     "projected_points",
     "vorp",
     "edgescore",
@@ -82,12 +84,27 @@ def select_display_columns(rankings, preferred_columns):
     return [column for column in preferred_columns if column in rankings.columns]
 
 
+def format_position_tier(position, tier):
+    return f"{str(position).strip().upper()} Tier {int(tier)}"
+
+
+def get_display_tier_label(player):
+    tier = pd.to_numeric(player.get("tier"), errors="coerce")
+    if pd.isna(tier):
+        return ""
+    return format_position_tier(player.get("position", ""), tier)
+
+
 def build_available_player_display(rankings):
     """Return only the decision columns needed on the draft-night board."""
     columns = select_display_columns(rankings, DRAFT_NIGHT_COLUMNS)
-    if rankings.columns.tolist() == columns:
-        return rankings
-    return rankings.loc[:, columns].copy().reset_index(drop=True)
+    display = rankings.loc[:, columns].copy().reset_index(drop=True)
+    display.insert(
+        DRAFT_NIGHT_COLUMNS.index("tier_label"),
+        "tier_label",
+        rankings.apply(get_display_tier_label, axis=1).to_numpy(),
+    )
+    return display
 
 
 def build_static_available_board_html(rankings):
@@ -119,6 +136,11 @@ def build_player_ranking_explanation(rankings, player_name):
 
     player_index = int(matches.index[0])
     player = board.loc[player_index]
+    tier_remaining = pd.to_numeric(player.get("tier_remaining"), errors="coerce")
+    tier_scarcity_score = pd.to_numeric(
+        player.get("tier_scarcity_score"),
+        errors="coerce",
+    )
 
     key_numbers = {
         "projected_points": float(player.get("projected_points", 0.0)),
@@ -159,6 +181,11 @@ def build_player_ranking_explanation(rankings, player_name):
         "player_name": player.get("player_name_clean"),
         "draft_rank": int(player.get("draft_rank", 0)),
         "position_rank_label": player.get("position_rank_label"),
+        "tier_label": get_display_tier_label(player),
+        "tier_remaining": 0 if pd.isna(tier_remaining) else int(tier_remaining),
+        "tier_scarcity_score": (
+            0.0 if pd.isna(tier_scarcity_score) else float(tier_scarcity_score)
+        ),
         "brain_score": float(player.get("brain_score", 0.0)),
         "recommendation": player.get("brain_recommendation", ""),
         "drivers": list(player.get("brain_reasons", []) or []),
