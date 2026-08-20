@@ -2,7 +2,9 @@
 
 import pandas as pd
 
+from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
+from fantasy_draft_model.engines.vorp_engine import calculate_replacement_ranks
 from fantasy_draft_model.live_war_room import load_war_room_state
 from fantasy_draft_model.rankings import build_draft_rankings
 from fantasy_draft_model.ui.draft_war_room import build_live_draft_context
@@ -54,17 +56,9 @@ def _numeric_column(df, column):
     return pd.to_numeric(df[column], errors="coerce").fillna(0.0)
 
 
-def build_te_ranking_audit(board):
-    """Expose how TE VORP and scarcity flow into Brain through multiple paths.
-
-    This is diagnostic only. It does not change any rankings or weights.
-    """
-    if "position" not in board.columns:
-        return board.iloc[0:0].copy()
-
-    audit = board.loc[
-        board["position"].astype(str).str.strip().str.upper() == "TE"
-    ].copy()
+def _add_multipath_value_columns(audit):
+    """Add the VORP/scarcity contribution paths that feed Draft Brain."""
+    audit = audit.copy()
 
     if audit.empty:
         return audit
@@ -121,6 +115,86 @@ def build_te_ranking_audit(board):
         "brain_vorp_and_scarcity_total",
     ]
     audit[contribution_columns] = audit[contribution_columns].round(2)
+    return audit
+
+
+def build_position_value_audit(board, position, replacement_rank):
+    """Audit one position with lineup-demand context and multipath value."""
+    if "position" not in board.columns:
+        return board.iloc[0:0].copy()
+
+    position_clean = str(position).strip().upper()
+    audit = board.loc[
+        board["position"].astype(str).str.strip().str.upper() == position_clean
+    ].copy()
+
+    if audit.empty:
+        return audit
+
+    replacement_rank = int(replacement_rank)
+    audit = _add_multipath_value_columns(audit)
+    audit["position_replacement_rank"] = replacement_rank
+
+    if "position_rank" in audit.columns:
+        position_ranks = pd.to_numeric(audit["position_rank"], errors="coerce")
+        players_at_or_above_replacement = int(
+            (position_ranks <= replacement_rank).fillna(False).sum()
+        )
+    else:
+        players_at_or_above_replacement = min(len(audit), replacement_rank)
+
+    audit["players_at_or_above_replacement"] = players_at_or_above_replacement
+
+    if "brain_score" in audit.columns:
+        audit = audit.sort_values("brain_score", ascending=False)
+    elif "draft_rank" in audit.columns:
+        audit = audit.sort_values("draft_rank", ascending=True)
+
+    return audit.reset_index(drop=True)
+
+
+def build_rb_te_value_comparison(board, replacement_ranks, top_n=12):
+    """Place the strongest RB and TE rows side by side under the same audit math."""
+    audits = []
+
+    for position in ("RB", "TE"):
+        replacement_rank = int(replacement_ranks.get(position, 0))
+        if replacement_rank <= 0:
+            continue
+
+        position_audit = build_position_value_audit(
+            board,
+            position,
+            replacement_rank=replacement_rank,
+        )
+        if not position_audit.empty:
+            audits.append(position_audit.head(int(top_n)))
+
+    if not audits:
+        return board.iloc[0:0].copy()
+
+    comparison = pd.concat(audits, ignore_index=True, sort=False)
+    if "brain_score" in comparison.columns:
+        comparison = comparison.sort_values("brain_score", ascending=False)
+    elif "draft_rank" in comparison.columns:
+        comparison = comparison.sort_values("draft_rank", ascending=True)
+
+    return comparison.reset_index(drop=True)
+
+
+def build_te_ranking_audit(board):
+    """Expose how TE VORP and scarcity flow into Brain through multiple paths.
+
+    This is diagnostic only. It does not change any rankings or weights.
+    """
+    if "position" not in board.columns:
+        return board.iloc[0:0].copy()
+
+    audit = board.loc[
+        board["position"].astype(str).str.strip().str.upper() == "TE"
+    ].copy()
+
+    audit = _add_multipath_value_columns(audit)
 
     if "brain_score" in audit.columns:
         audit = audit.sort_values("brain_score", ascending=False)
@@ -180,6 +254,56 @@ def main():
         print("No tight ends were found in the current board.")
     else:
         print(te_audit[te_columns].head(12).round(2).to_string(index=False))
+
+    league_settings = load_league_settings(state["league_key"])
+    replacement_ranks = calculate_replacement_ranks(rankings, league_settings)
+    rb_te_comparison = build_rb_te_value_comparison(
+        board,
+        replacement_ranks=replacement_ranks,
+        top_n=12,
+    )
+    comparison_columns = [
+        "position",
+        "player_name_clean",
+        "position_rank_label",
+        "draft_rank",
+        "projected_points",
+        "replacement_points",
+        "vorp",
+        "vorp_score",
+        "tier_status",
+        "tier_scarcity_score",
+        "position_replacement_rank",
+        "players_at_or_above_replacement",
+        "brain_vorp_total",
+        "brain_scarcity_total",
+        "brain_vorp_and_scarcity_total",
+        "draft_score",
+        "pressure_score",
+        "brain_score",
+        "brain_recommendation",
+    ]
+    comparison_columns = [
+        column for column in comparison_columns if column in rb_te_comparison.columns
+    ]
+
+    print("\n============================================")
+    print("EDGEIQ RB vs TE VALUE AUDIT")
+    print("============================================")
+    print(
+        f"Replacement ranks: RB={replacement_ranks.get('RB')} | "
+        f"TE={replacement_ranks.get('TE')}"
+    )
+    print("============================================\n")
+
+    if rb_te_comparison.empty:
+        print("No RB/TE players were found in the current board.")
+    else:
+        print(
+            rb_te_comparison[comparison_columns]
+            .round(2)
+            .to_string(index=False)
+        )
 
 
 if __name__ == "__main__":
