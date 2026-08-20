@@ -28,6 +28,17 @@ def _rankings():
     )
 
 
+def _drunk_sundays_state(current_pick):
+    return {
+        "league_name": "Drunk Sundays",
+        "league_key": "drunk_sundays",
+        "user_team": "BLKWDW'S",
+        "team_count": 12,
+        "draft_rounds": 15,
+        "current_pick": current_pick,
+    }
+
+
 def test_filter_available_players_removes_manual_picks_and_keepers():
     state = {
         "manual_picks": [{"player_name": " alpha wr "}],
@@ -81,3 +92,33 @@ def test_build_recent_history_returns_newest_manual_picks_first():
     history = draft_war_room.build_recent_history(state, limit=10)
 
     assert history["pick_number"].tolist() == [2, 1]
+
+
+def test_build_live_draft_context_counts_picks_until_user():
+    context = draft_war_room.build_live_draft_context(
+        _drunk_sundays_state(current_pick=1)
+    )
+
+    assert context["next_user_pick"] == 9
+    assert context["picks_until_user"] == 8
+    assert context["user_on_clock"] is False
+
+
+def test_build_live_draft_context_detects_user_on_clock():
+    context = draft_war_room.build_live_draft_context(
+        _drunk_sundays_state(current_pick=9)
+    )
+
+    assert context["next_user_pick"] == 9
+    assert context["picks_until_user"] == 0
+    assert context["user_on_clock"] is True
+
+
+def test_build_live_draft_context_finds_next_snake_turn_after_user_pick():
+    context = draft_war_room.build_live_draft_context(
+        _drunk_sundays_state(current_pick=10)
+    )
+
+    assert context["next_user_pick"] == 16
+    assert context["picks_until_user"] == 6
+    assert context["user_on_clock"] is False
