@@ -5,6 +5,14 @@ from pathlib import Path
 
 from fantasy_draft_model.keepers import load_keepers
 from fantasy_draft_model.models.league_profile import LEAGUES
+from fantasy_draft_model.war_room_state import (
+    DraftCompleteError,
+    derive_draft_status,
+    new_draft_id,
+    total_picks_for,
+    utc_now_iso,
+    validate_war_room_state,
+)
 
 
 DEFAULT_STATE_PATH = (
@@ -127,6 +135,22 @@ def build_keeper_reservations(league, keepers_df):
     )
 
 
+def _draft_total_picks(state):
+    if "total_picks" in state:
+        return int(state["total_picks"])
+    if "team_count" in state and "draft_rounds" in state:
+        return int(state["team_count"]) * int(state["draft_rounds"])
+    return None
+
+
+def _raise_if_draft_complete(state):
+    total_picks = _draft_total_picks(state)
+    if total_picks is not None and int(state["current_pick"]) > total_picks:
+        raise DraftCompleteError(
+            f"Draft is complete after {total_picks} picks"
+        )
+
+
 def advance_keeper_slots(state):
     """Advance through any keeper-reserved picks without double-processing."""
     reservations_by_pick = {
@@ -140,12 +164,18 @@ def advance_keeper_slots(state):
 
     while True:
         current_pick = int(state["current_pick"])
+        total_picks = _draft_total_picks(state)
+        if total_picks is not None and current_pick > total_picks:
+            break
         if current_pick not in reservations_by_pick or current_pick in processed:
             break
 
         state.setdefault("processed_keeper_picks", []).append(current_pick)
         processed.add(current_pick)
         state["current_pick"] = current_pick + 1
+
+    if _draft_total_picks(state) is not None:
+        state["status"] = derive_draft_status(state)
 
     return state
 
@@ -154,6 +184,8 @@ def get_pick_context(state):
     """Return canonical snake-draft metadata for the state's current pick."""
     league_identifier = state.get("league_key") or state["league_name"]
     league = resolve_league(league_identifier)
+
+    _raise_if_draft_complete(state)
 
     pick_number = int(state["current_pick"])
     team_count = int(state["team_count"])
@@ -198,7 +230,9 @@ def _already_drafted_player_names(state):
 
 def record_manual_pick(state, player_row, state_path=DEFAULT_STATE_PATH):
     """Record one manual draft selection, advance the board, and persist it."""
+    _raise_if_draft_complete(state)
     advance_keeper_slots(state)
+    _raise_if_draft_complete(state)
     context = get_pick_context(state)
 
     player_name = _player_value(player_row, "player_name_clean")
@@ -226,6 +260,8 @@ def record_manual_pick(state, player_row, state_path=DEFAULT_STATE_PATH):
     state.setdefault("manual_picks", []).append(pick)
     state["current_pick"] = context["pick_number"] + 1
     advance_keeper_slots(state)
+    state["status"] = derive_draft_status(state)
+    state["updated_at"] = utc_now_iso()
     save_war_room_state(state, state_path)
     return pick
 
@@ -248,6 +284,9 @@ def undo_last_manual_pick(state, state_path=DEFAULT_STATE_PATH):
     ]
     state["current_pick"] = restored_pick
 
+    state["status"] = derive_draft_status(state)
+    state["updated_at"] = utc_now_iso()
+
     save_war_room_state(state, state_path)
     return removed
 
@@ -258,8 +297,14 @@ def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
     keepers = load_keepers(league["name"])
     keeper_reservations = build_keeper_reservations(league, keepers)
 
+    timestamp = utc_now_iso()
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "draft_id": new_draft_id(),
+        "created_at": timestamp,
+        "updated_at": timestamp,
+        "status": "active",
+        "total_picks": total_picks_for(league),
         "league_name": league["name"],
         "league_key": league["league_key"],
         "user_team": league["user_team"],
@@ -272,5 +317,7 @@ def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
     }
 
     advance_keeper_slots(state)
+    state["status"] = derive_draft_status(state)
+    validate_war_room_state(state, keeper_reservations=keeper_reservations)
     save_war_room_state(state, state_path)
     return state

@@ -1,3 +1,4 @@
+import copy
 import importlib
 
 import pandas as pd
@@ -88,7 +89,12 @@ def test_initialize_and_reload_war_room_state(tmp_path, monkeypatch):
         state_path=state_path,
     )
 
-    assert state["schema_version"] == 1
+    assert state["schema_version"] == 2
+    assert state["total_picks"] == 180
+    assert state["status"] == "active"
+    assert state["draft_id"]
+    assert state["created_at"].endswith("+00:00")
+    assert state["updated_at"].endswith("+00:00")
     assert state["league_name"] == "Drunk Sundays"
     assert state["league_key"] == "drunk_sundays"
     assert state["user_team"] == "BLKWDW'S"
@@ -253,6 +259,99 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
     assert pick["draft_slot"] == 9
 
     assert war_room.load_war_room_state(state_path) == state
+
+
+def _valid_state_at_pick_180(tmp_path, monkeypatch):
+    war_room = _war_room_module()
+    state_path = tmp_path / "war_room_state.json"
+    monkeypatch.setattr(
+        war_room,
+        "load_keepers",
+        lambda league_name=None: _empty_keepers(),
+    )
+    state = war_room.initialize_war_room("drunk_sundays", state_path=state_path)
+    draft_order = war_room.resolve_league("drunk_sundays")["draft_order"]
+    manual_picks = []
+    for pick_number in range(1, 180):
+        round_number = ((pick_number - 1) // 12) + 1
+        pick_in_round = ((pick_number - 1) % 12) + 1
+        draft_slot = pick_in_round if round_number % 2 else 13 - pick_in_round
+        manual_picks.append(
+            {
+                "player_name": f"Player {pick_number}",
+                "position": "WR",
+                "nfl_team": "CLE",
+                "bye_week": 10,
+                "draft_rank": pick_number,
+                "fantasy_team": draft_order[draft_slot - 1],
+                "pick_number": pick_number,
+                "round": round_number,
+                "draft_slot": draft_slot,
+            }
+        )
+    state["manual_picks"] = manual_picks
+    state["current_pick"] = 180
+    return war_room, state, state_path
+
+
+def test_final_pick_completes_and_undo_reopens_draft(tmp_path, monkeypatch):
+    war_room, state, state_path = _valid_state_at_pick_180(tmp_path, monkeypatch)
+
+    pick = war_room.record_manual_pick(
+        state,
+        _player_row("Final Player"),
+        state_path,
+    )
+
+    assert pick["pick_number"] == 180
+    assert state["current_pick"] == 181
+    assert state["status"] == "complete"
+
+    before = copy.deepcopy(state)
+    with pytest.raises(war_room.DraftCompleteError, match="180"):
+        war_room.record_manual_pick(state, _player_row("Pick 181"), state_path)
+    assert state == before
+
+    removed = war_room.undo_last_manual_pick(state, state_path)
+    assert removed["pick_number"] == 180
+    assert state["current_pick"] == 180
+    assert state["status"] == "active"
+
+
+def test_get_pick_context_rejects_pick_after_draft_completion(tmp_path, monkeypatch):
+    war_room, state, _ = _valid_state_at_pick_180(tmp_path, monkeypatch)
+    state["current_pick"] = 181
+    state["status"] = "complete"
+
+    with pytest.raises(war_room.DraftCompleteError, match="180"):
+        war_room.get_pick_context(state)
+
+
+def test_live_context_reports_all_slots_accounted_at_completion(tmp_path, monkeypatch):
+    from fantasy_draft_model.ui.draft_war_room import build_live_draft_context
+
+    _, state, _ = _valid_state_at_pick_180(tmp_path, monkeypatch)
+    state["manual_picks"].append(
+        {
+            "player_name": "Final Player",
+            "position": "WR",
+            "nfl_team": "CLE",
+            "bye_week": 10,
+            "draft_rank": 180,
+            "fantasy_team": "Parrots",
+            "pick_number": 180,
+            "round": 15,
+            "draft_slot": 12,
+        }
+    )
+    state["current_pick"] = 181
+    state["status"] = "complete"
+
+    context = build_live_draft_context(state)
+
+    assert context["draft_complete"] is True
+    assert context["total_picks"] == 180
+    assert context["accounted_picks"] == 180
 
 
 def test_record_manual_pick_rejects_duplicate_without_advancing(
