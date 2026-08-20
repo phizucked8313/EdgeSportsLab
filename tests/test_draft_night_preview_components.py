@@ -216,6 +216,34 @@ def test_preview_css_scopes_the_dark_responsive_draft_night_system():
     assert "line-clamp" not in css
 
 
+def test_preview_css_sets_a_deterministic_dark_streamlit_page_shell():
+    """Losing the standalone shell theme must expose theme-dependent native UI."""
+    css = import_module("prototypes.draft_night_preview.styles").preview_css()
+
+    for token in (
+        "--edgeiq-shell-bg: #07111f",
+        "--edgeiq-shell-text: #eef5ff",
+        "--edgeiq-shell-muted: #a8bacd",
+        "background: var(--edgeiq-shell-bg)",
+        "color: var(--edgeiq-shell-text)",
+        "color: var(--edgeiq-shell-muted)",
+    ):
+        assert token in css
+
+    for selector in (
+        ".stApp",
+        '[data-testid="stHeader"]',
+        '[data-testid="stAppViewContainer"]',
+        '[data-testid="stHeading"] h1',
+        '[data-testid="stCaptionContainer"]',
+        '[data-testid="stRadio"]',
+    ):
+        assert selector in css
+
+    assert '[data-testid="stHeader"] { display: none' not in css
+    assert '#MainMenu { visibility: hidden' not in css
+
+
 PREVIEW_ROOT = Path(__file__).resolve().parents[1] / "prototypes" / "draft_night_preview"
 
 

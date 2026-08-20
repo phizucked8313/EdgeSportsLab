@@ -5,6 +5,30 @@ def preview_css() -> str:
     """Return the compact, dark, dependency-free preview stylesheet."""
     return """
 <style>
+.stApp {
+  --edgeiq-shell-bg: #07111f;
+  --edgeiq-shell-text: #eef5ff;
+  --edgeiq-shell-muted: #a8bacd;
+  background: var(--edgeiq-shell-bg);
+  color: var(--edgeiq-shell-text);
+}
+
+[data-testid="stHeader"],
+[data-testid="stAppViewContainer"] {
+  background: var(--edgeiq-shell-bg);
+}
+
+[data-testid="stHeading"] h1,
+[data-testid="stRadio"],
+[data-testid="stRadio"] [data-testid="stMarkdownContainer"] {
+  color: var(--edgeiq-shell-text);
+}
+
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p {
+  color: var(--edgeiq-shell-muted);
+}
+
 .edgeiq-preview {
   --edgeiq-bg: #07111f;
   --edgeiq-surface: #0d1b2d;
