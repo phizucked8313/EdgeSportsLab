@@ -25,6 +25,7 @@ sys.meta_path.insert(0, BlockStreamlit())
 
 import fantasy_draft_model.draft_assistant
 import fantasy_draft_model.engines.mock_draft_engine
+import fantasy_draft_model.ui.draft_war_room
 print("core imports ok")
 '''
 
@@ -79,7 +80,6 @@ def test_visual_ui_placeholders_remain_outside_core_execution_path():
     ui_dir = pathlib.Path(__file__).resolve().parents[1] / "fantasy_draft_model" / "ui"
     placeholder_names = [
         "streamlit_app.py",
-        "draft_war_room.py",
         "league_dashboard.py",
         "player_card_view.py",
     ]
