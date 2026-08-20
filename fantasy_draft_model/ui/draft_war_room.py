@@ -145,6 +145,7 @@ def build_live_draft_context(state):
         "user_on_clock": user_on_clock,
         "user_draft_slot": user_slot,
         "draft_complete": current_pick > total_picks,
+        "drafted_picks": state.get("manual_picks", []),
     }
 
 
