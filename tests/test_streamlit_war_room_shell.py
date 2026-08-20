@@ -137,3 +137,106 @@ def test_build_live_view_forwards_ui_filters(monkeypatch):
         "search_text": "beta",
         "position": "RB",
     }
+
+
+class FakeStreamlit:
+    def __init__(self):
+        self.metrics = []
+        self.subheaders = []
+        self.dataframes = []
+        self.messages = []
+        self.search_value = ""
+        self.position_value = "ALL"
+
+    def metric(self, label, value):
+        self.metrics.append((label, value))
+
+    def subheader(self, text):
+        self.subheaders.append(text)
+
+    def dataframe(self, dataframe, **kwargs):
+        self.dataframes.append(dataframe)
+
+    def success(self, text):
+        self.messages.append(("success", text))
+
+    def info(self, text):
+        self.messages.append(("info", text))
+
+    def text_input(self, label, value=""):
+        return self.search_value
+
+    def selectbox(self, label, options, index=0):
+        return self.position_value
+
+
+def test_render_war_room_snapshot_shows_context_and_live_panels():
+    fake_st = FakeStreamlit()
+    available = pd.DataFrame(
+        [{"player_name_clean": "Beta RB", "position": "RB", "team": "DET"}]
+    )
+    roster = pd.DataFrame(
+        [{"player_name": "User WR", "position": "WR", "nfl_team": "CLE"}]
+    )
+    history = pd.DataFrame(
+        [{"pick_number": 9, "player_name": "User WR", "fantasy_team": "BLKWDW'S"}]
+    )
+    snapshot = {
+        "context": {
+            "current_pick": 10,
+            "next_user_pick": 16,
+            "picks_until_user": 6,
+            "user_on_clock": False,
+        },
+        "filtered_available": available,
+        "roster": roster,
+        "recent_history": history,
+    }
+
+    streamlit_app.render_war_room_snapshot(fake_st, snapshot)
+
+    assert ("Current Pick", 10) in fake_st.metrics
+    assert ("Next BLKWDW'S Pick", 16) in fake_st.metrics
+    assert ("Picks Until You", 6) in fake_st.metrics
+    assert fake_st.subheaders == [
+        "Available Players",
+        "Your Roster",
+        "Recent Draft History",
+    ]
+    assert fake_st.dataframes == [available, roster, history]
+
+
+def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
+    fake_st = FakeStreamlit()
+    fake_st.search_value = "beta"
+    fake_st.position_value = "RB"
+    snapshot = {"ok": True}
+    captured = {}
+
+    def fake_build_live_view(search_text="", position=None):
+        captured["search_text"] = search_text
+        captured["position"] = position
+        return snapshot
+
+    def fake_render(st, supplied_snapshot):
+        captured["st"] = st
+        captured["snapshot"] = supplied_snapshot
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_live_view",
+        fake_build_live_view,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "render_war_room_snapshot",
+        fake_render,
+        raising=False,
+    )
+
+    streamlit_app.run_war_room_ui(fake_st)
+
+    assert captured["search_text"] == "beta"
+    assert captured["position"] == "RB"
+    assert captured["st"] is fake_st
+    assert captured["snapshot"] is snapshot
