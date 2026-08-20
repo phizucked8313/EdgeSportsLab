@@ -11,7 +11,6 @@ from fantasy_draft_model.rankings_snapshot import (
 )
 from fantasy_draft_model.live_war_room import (
     DEFAULT_STATE_PATH,
-    initialize_war_room,
     load_war_room_state,
     record_manual_pick,
     undo_last_manual_pick,
@@ -77,18 +76,24 @@ def get_or_build_base_rankings(
     builder=None,
     timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
     status_cache=None,
+    production_publication=False,
 ):
     """Build expensive rankings once per league and reuse them from the supplied cache."""
     if builder is None:
         builder = build_draft_rankings
     if paths is None:
-        paths = RANKINGS_SNAPSHOT_PATHS
+        raise ValueError("explicit snapshot paths are required for rankings helpers")
     if league_key not in cache:
+        fallback_kwargs = {
+            "builder": builder,
+            "paths": paths,
+            "timeout_seconds": timeout_seconds,
+        }
+        if production_publication:
+            fallback_kwargs["production_publication"] = True
         cache[league_key], status = load_rankings_with_fallback(
             league_key,
-            builder=builder,
-            paths=paths,
-            timeout_seconds=timeout_seconds,
+            **fallback_kwargs,
         )
         if status_cache is not None:
             status_cache[league_key] = status
@@ -105,8 +110,11 @@ def build_live_view(
     paths=None,
     builder=None,
     timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+    production_publication=False,
 ):
     """Build the War Room snapshot using fresh live context and optional cached rankings."""
+    if base_rankings is None and paths is None:
+        raise ValueError("explicit snapshot paths are required for rankings helpers")
     state = load_or_initialize_war_room_state()
     _require_authorized_draft(state, expected_draft_id)
     context = build_live_draft_context(state)
@@ -114,13 +122,16 @@ def build_live_view(
     if base_rankings is None:
         if builder is None:
             builder = build_draft_rankings
-        if paths is None:
-            paths = RANKINGS_SNAPSHOT_PATHS
+        fallback_kwargs = {
+            "builder": builder,
+            "paths": paths,
+            "timeout_seconds": timeout_seconds,
+        }
+        if production_publication:
+            fallback_kwargs["production_publication"] = True
         base_rankings, loaded_status = load_rankings_with_fallback(
             state["league_key"],
-            builder=builder,
-            paths=paths,
-            timeout_seconds=timeout_seconds,
+            **fallback_kwargs,
         )
         if data_status is None:
             data_status = loaded_status
@@ -295,7 +306,7 @@ def _return_to_lifecycle_gate(st, error):
     st.error(str(error))
     try:
         inspection = inspect_draft_lifecycle(DEFAULT_STATE_PATH)
-    except (StateLoadError, StateValidationError, ValueError) as inspection_error:
+    except (StateLoadError, StateValidationError, OSError, ValueError) as inspection_error:
         _render_lifecycle_error(st, inspection_error)
         return
     render_state_recovery(st, inspection)
@@ -430,7 +441,7 @@ def run_war_room_ui(st):
 
     try:
         inspection = inspect_draft_lifecycle(DEFAULT_STATE_PATH)
-    except (StateLoadError, StateValidationError, ValueError) as error:
+    except (StateLoadError, StateValidationError, OSError, ValueError) as error:
         _render_lifecycle_error(st, error)
         return
 
@@ -489,6 +500,7 @@ def run_war_room_ui(st):
                 builder=build_draft_rankings,
                 timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
                 status_cache=status_cache,
+                production_publication=True,
             )
         except RankingRefreshError as error:
             _render_rankings_startup_error(st, error)
@@ -501,6 +513,8 @@ def run_war_room_ui(st):
                 search_text=search_text,
                 position=position,
                 expected_draft_id=authorized_draft_id,
+                paths=RANKINGS_SNAPSHOT_PATHS,
+                production_publication=True,
             )
         else:
             snapshot = build_live_view(
@@ -509,8 +523,13 @@ def run_war_room_ui(st):
                 base_rankings=base_rankings,
                 data_status=data_status,
                 expected_draft_id=authorized_draft_id,
+                paths=RANKINGS_SNAPSHOT_PATHS,
+                production_publication=True,
             )
     except DraftAuthorizationError as error:
+        _return_to_lifecycle_gate(st, error)
+        return
+    except (StateLoadError, StateValidationError, OSError) as error:
         _return_to_lifecycle_gate(st, error)
         return
 

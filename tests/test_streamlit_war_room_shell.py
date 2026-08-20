@@ -18,7 +18,7 @@ def _state():
     }
 
 
-def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
+def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch, tmp_path):
     state = _state()
     board = pd.DataFrame(
         [
@@ -83,7 +83,12 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
         raising=False,
     )
 
-    snapshot = streamlit_app.build_live_view()
+    snapshot = streamlit_app.build_live_view(
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
+    )
 
     assert calls["league_key"] == "drunk_sundays"
     assert calls["rankings"] is board
@@ -92,7 +97,7 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
     assert snapshot["state"] is state
 
 
-def test_build_live_view_forwards_ui_filters(monkeypatch):
+def test_build_live_view_forwards_ui_filters(monkeypatch, tmp_path):
     state = _state()
     board = pd.DataFrame(
         [
@@ -149,6 +154,10 @@ def test_build_live_view_forwards_ui_filters(monkeypatch):
     result = streamlit_app.build_live_view(
         search_text="beta",
         position="RB",
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
     )
 
     assert result["ok"] is True

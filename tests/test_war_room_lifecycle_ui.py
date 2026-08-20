@@ -1,10 +1,13 @@
 from dataclasses import replace
 
 import pandas as pd
+import pytest
 
 from fantasy_draft_model.draft_lifecycle import LifecycleInspection
 from fantasy_draft_model.rankings_snapshot import RankingRefreshError
+from fantasy_draft_model.state_persistence import StateLoadError
 from fantasy_draft_model.ui import streamlit_app
+from fantasy_draft_model.war_room_state import StateValidationError
 
 
 class FakeStreamlit:
@@ -204,6 +207,46 @@ def test_state_swap_after_authorization_returns_to_lifecycle_gate_before_board(
 
     assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
     assert "draft-b" in fake_st.rendered_text
+
+
+@pytest.mark.parametrize(
+    "error_factory",
+    [
+        lambda: OSError("authoritative state disappeared"),
+        lambda: StateValidationError(["late keeper validation failed"]),
+        lambda: StateLoadError(_inspection(), "late state load failed"),
+    ],
+)
+def test_post_gate_state_failures_return_to_lifecycle_gate_safely(
+    monkeypatch,
+    error_factory,
+):
+    fake_st = FakeStreamlit()
+    fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] = "draft-1"
+    inspections = iter([_inspection(), _inspection()])
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "inspect_draft_lifecycle",
+        lambda _path: next(inspections),
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_or_build_base_rankings",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            [{"player_name_clean": "Alpha WR", "position": "WR"}]
+        ),
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_live_view",
+        lambda **_kwargs: (_ for _ in ()).throw(error_factory()),
+    )
+
+    streamlit_app.run_war_room_ui(fake_st)
+
+    assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
+    assert "draft-1" in fake_st.rendered_text
 
 
 def test_stale_authorized_record_does_not_mutate_replacement_draft(monkeypatch):

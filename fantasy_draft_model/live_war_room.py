@@ -35,14 +35,47 @@ def resolve_league(league_identifier):
     raise ValueError(f"Unknown league: {league_identifier!r}")
 
 
-def save_war_room_state(state, state_path=DEFAULT_STATE_PATH):
+def make_keeper_aware_state_validator(keeper_loader=None):
+    """Build a persistence validator bound to the current canonical keepers."""
+    loader = keeper_loader or load_keepers
+    reservations_by_league = {}
+
+    def validate_current_state(state):
+        if not isinstance(state, dict):
+            return validate_war_room_state(state)
+        league_identifier = state.get("league_key") or state.get("league_name")
+        league = resolve_league(league_identifier)
+        cache_key = league["league_key"]
+        if cache_key not in reservations_by_league:
+            keepers = loader(league["name"])
+            reservations_by_league[cache_key] = build_keeper_reservations(
+                league,
+                keepers,
+            )
+        reservations = reservations_by_league[cache_key]
+        return validate_war_room_state(
+            state,
+            keeper_reservations=reservations,
+        )
+
+    return validate_current_state
+
+
+def save_war_room_state(
+    state,
+    state_path=DEFAULT_STATE_PATH,
+    *,
+    keeper_loader=None,
+):
     """Persist validated War Room state atomically."""
-    return save_validated_state(state, state_path)
+    validator = make_keeper_aware_state_validator(keeper_loader)
+    return save_validated_state(state, state_path, validator=validator)
 
 
-def load_war_room_state(state_path=DEFAULT_STATE_PATH):
+def load_war_room_state(state_path=DEFAULT_STATE_PATH, *, keeper_loader=None):
     """Load only a valid authoritative War Room state."""
-    inspection = inspect_state_files(state_path)
+    validator = make_keeper_aware_state_validator(keeper_loader)
+    inspection = inspect_state_files(state_path, validator=validator)
     if inspection.source != "authoritative":
         raise StateLoadError(inspection)
     return inspection.state
@@ -329,4 +362,5 @@ def initialize_war_room(
     state["status"] = derive_draft_status(state)
     validate_war_room_state(state, keeper_reservations=keeper_reservations)
     saver = state_saver or save_war_room_state
-    return saver(state, state_path)
+    saved = saver(state, state_path)
+    return state if saved is None else saved

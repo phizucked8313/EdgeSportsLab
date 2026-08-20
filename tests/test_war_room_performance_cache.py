@@ -54,7 +54,7 @@ def test_build_draft_assistant_from_rankings_uses_live_context(monkeypatch):
     assert "brain_score" not in base.columns
 
 
-def test_get_or_build_base_rankings_reuses_cache(monkeypatch):
+def test_get_or_build_base_rankings_reuses_cache(monkeypatch, tmp_path):
     cache = {}
     board = _base_board()
     calls = []
@@ -65,8 +65,20 @@ def test_get_or_build_base_rankings_reuses_cache(monkeypatch):
 
     monkeypatch.setattr(streamlit_app, "build_draft_rankings", fake_build, raising=False)
 
-    first = streamlit_app.get_or_build_base_rankings(cache, "drunk_sundays")
-    second = streamlit_app.get_or_build_base_rankings(cache, "drunk_sundays")
+    paths = {
+        "data_path": tmp_path / "rankings.csv",
+        "metadata_path": tmp_path / "rankings.json",
+    }
+    first = streamlit_app.get_or_build_base_rankings(
+        cache,
+        "drunk_sundays",
+        paths=paths,
+    )
+    second = streamlit_app.get_or_build_base_rankings(
+        cache,
+        "drunk_sundays",
+        paths=paths,
+    )
 
     assert first is board
     assert second is board

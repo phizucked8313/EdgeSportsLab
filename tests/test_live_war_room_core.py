@@ -516,3 +516,22 @@ def test_undo_last_manual_pick_rejects_empty_history_without_mutation(
 
     assert state == before
     assert war_room.load_war_room_state(state_path) == state
+
+
+def test_initialize_war_room_returns_constructed_state_when_injected_saver_returns_none():
+    war_room = _war_room_module()
+    saved = []
+
+    def save_without_return(state, path):
+        saved.append((state, path))
+
+    state = war_room.initialize_war_room(
+        "drunk_sundays",
+        state_path="ignored-state-path.json",
+        keeper_loader=lambda _league_name: _empty_keepers(),
+        state_saver=save_without_return,
+    )
+
+    assert state is saved[0][0]
+    assert state["league_key"] == "drunk_sundays"
+    assert state["keeper_reservations"] == []

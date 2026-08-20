@@ -16,6 +16,7 @@ from fantasy_draft_model.live_war_room import (
     build_keeper_reservations,
     initialize_war_room,
     load_war_room_state,
+    make_keeper_aware_state_validator,
     resolve_league,
 )
 from fantasy_draft_model.state_persistence import (
@@ -109,6 +110,12 @@ def _read_legacy_candidate(path, keeper_loader):
     return legacy, migrated
 
 
+def _read_and_validate_candidate(path, validator):
+    with Path(path).open("r", encoding="utf-8") as file:
+        candidate = json.load(file)
+    return validator(candidate)
+
+
 def _state_age_seconds(state, source_path, now):
     timestamp = state.get("updated_at") if state else None
     if timestamp:
@@ -129,6 +136,7 @@ def inspect_draft_lifecycle(
 ):
     """Inspect lifecycle choices without writing or recovering any artifact."""
     state_path = Path(state_path)
+    keeper_aware_validator = make_keeper_aware_state_validator(keeper_loader)
     file_inspection = inspect_state_files(state_path)
     recovery_path = state_recovery_metadata_path(state_path)
     state = None
@@ -142,14 +150,28 @@ def inspect_draft_lifecycle(
 
     if file_inspection.source == "authoritative":
         try:
-            state = _validate_with_current_keepers(
-                file_inspection.state,
-                keeper_loader,
-            )
+            state = keeper_aware_validator(file_inspection.state)
             source = "authoritative"
             can_resume = True
+            if file_inspection.backup_path.exists():
+                try:
+                    _read_and_validate_candidate(
+                        file_inspection.backup_path,
+                        keeper_aware_validator,
+                    )
+                except Exception as error:
+                    backup_error = error
         except Exception as error:
             authoritative_error = error
+            try:
+                state = _read_and_validate_candidate(
+                    file_inspection.backup_path,
+                    keeper_aware_validator,
+                )
+                source = "backup"
+                can_recover = True
+            except Exception as backup_validation_error:
+                backup_error = backup_validation_error
     elif state_path.exists():
         try:
             _legacy, state = _read_legacy_candidate(state_path, keeper_loader)
@@ -161,10 +183,7 @@ def inspect_draft_lifecycle(
 
     if not can_resume and file_inspection.source == "backup":
         try:
-            state = _validate_with_current_keepers(
-                file_inspection.state,
-                keeper_loader,
-            )
+            state = keeper_aware_validator(file_inspection.state)
             source = "backup"
             can_recover = True
         except Exception as error:
@@ -310,11 +329,16 @@ def archive_state_artifacts(
     return directory
 
 
-def _save_after_verified_archive(state, state_path):
+def _save_after_verified_archive(
+    state,
+    state_path,
+    *,
+    validator=validate_war_room_state,
+):
     return atomic_write_json(
         state_path,
         state,
-        validate_war_room_state,
+        validator,
         allow_invalid_authoritative=True,
     )
 
@@ -344,8 +368,13 @@ def start_new_draft(
         keeper_loader=keeper_loader,
         state_saver=lambda state, _path: copy.deepcopy(state),
     )
-    _validate_with_current_keepers(candidate, keeper_loader)
-    return _save_after_verified_archive(candidate, state_path)
+    keeper_aware_validator = make_keeper_aware_state_validator(keeper_loader)
+    keeper_aware_validator(candidate)
+    return _save_after_verified_archive(
+        candidate,
+        state_path,
+        validator=keeper_aware_validator,
+    )
 
 
 def _default_archive_root(state_path):
@@ -369,12 +398,18 @@ def resume_existing_draft(
     )
     if not inspection.can_resume:
         raise StateLoadError(
-            inspect_state_files(state_path),
+            inspect_state_files(
+                state_path,
+                validator=make_keeper_aware_state_validator(keeper_loader),
+            ),
             "No authoritative War Room state is eligible to resume",
         )
     if not inspection.is_legacy:
         return _validate_with_current_keepers(
-            load_war_room_state(state_path),
+            load_war_room_state(
+                state_path,
+                keeper_loader=keeper_loader,
+            ),
             keeper_loader,
         )
 
@@ -394,16 +429,23 @@ def resume_existing_draft(
             "updated_at": timestamp,
         }
     )
-    _validate_with_current_keepers(migrated, keeper_loader)
+    keeper_aware_validator = make_keeper_aware_state_validator(keeper_loader)
+    keeper_aware_validator(migrated)
     return atomic_write_json(
         state_path,
         migrated,
-        validate_war_room_state,
+        keeper_aware_validator,
         allow_invalid_authoritative=True,
     )
 
 
-def recover_existing_draft(state_path, archive_root, *, keeper_loader=load_keepers):
+def recover_existing_draft(
+    state_path,
+    archive_root,
+    *,
+    keeper_loader=load_keepers,
+    recovery_metadata_writer=None,
+):
     """Explicitly recover the validated backup selected by lifecycle inspection."""
     inspection = inspect_draft_lifecycle(
         state_path,
@@ -411,8 +453,18 @@ def recover_existing_draft(state_path, archive_root, *, keeper_loader=load_keepe
     )
     if not inspection.can_recover:
         raise StateLoadError(
-            inspect_state_files(state_path),
+            inspect_state_files(
+                state_path,
+                validator=make_keeper_aware_state_validator(keeper_loader),
+            ),
             "No validated backup is eligible for recovery",
         )
-    recovered = recover_state_from_backup(state_path, archive_root)
-    return _validate_with_current_keepers(recovered, keeper_loader)
+    keeper_aware_validator = make_keeper_aware_state_validator(keeper_loader)
+    recovered = recover_state_from_backup(
+        state_path,
+        archive_root,
+        validator=keeper_aware_validator,
+        recovery_metadata_path=state_recovery_metadata_path(state_path),
+        recovery_metadata_writer=recovery_metadata_writer,
+    )
+    return recovered

@@ -68,7 +68,7 @@ def test_load_rejects_invalid_authoritative_even_when_backup_is_valid(tmp_path):
     _write_json(state_backup_path(path), _canonical_state())
 
     with pytest.raises(StateLoadError) as raised:
-        load_war_room_state(path)
+        load_war_room_state(path, keeper_loader=lambda _league_name: None)
 
     assert raised.value.inspection.source == "backup"
     assert path.read_bytes() == b"{broken"

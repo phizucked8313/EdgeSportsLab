@@ -16,6 +16,8 @@ from uuid import uuid4
 
 import pandas as pd
 
+from fantasy_draft_model.models.league_profile import LEAGUES
+
 
 SNAPSHOT_SCHEMA = "edgeiq-rankings-snapshot/v1"
 REQUIRED_RANKING_COLUMNS = (
@@ -23,6 +25,19 @@ REQUIRED_RANKING_COLUMNS = (
     "position",
     "team",
     "draft_rank",
+)
+PRODUCTION_REQUIRED_RANKING_COLUMNS = REQUIRED_RANKING_COLUMNS + (
+    "position_rank_label",
+    "tier",
+    "tier_next_projection_drop",
+    "tier_next_vorp_drop",
+    "projected_points",
+    "vorp",
+    "edgescore",
+    "draft_score",
+    "projection_confidence",
+    "injury_risk_score",
+    "bye_week",
 )
 VALID_POSITIONS = frozenset({"QB", "RB", "WR", "TE", "K", "DEF"})
 
@@ -91,6 +106,34 @@ def _validate_rankings(rankings):
         raise ValueError("rankings snapshot has missing required values")
 
 
+def _canonical_capacity(league_key):
+    for league in LEAGUES.values():
+        if league["league_key"] == league_key:
+            return int(league["team_count"]) * int(league["draft_rounds"])
+    raise ValueError(f"unknown canonical league: {league_key!r}")
+
+
+def _validate_production_publication(rankings, league_key):
+    """Reject fixture-sized or incomplete boards at the production boundary."""
+    capacity = _canonical_capacity(league_key)
+    missing = [
+        column
+        for column in PRODUCTION_REQUIRED_RANKING_COLUMNS
+        if column not in rankings.columns
+    ]
+    if len(rankings) < capacity or missing:
+        details = []
+        if len(rankings) < capacity:
+            details.append(f"{len(rankings)} rows is below {capacity}")
+        if missing:
+            details.append(f"missing {missing}")
+        raise ValueError(
+            "production publication requires minimum canonical draft capacity "
+            "and full War Room required columns; "
+            + "; ".join(details)
+        )
+
+
 def _json_safe_frame(rankings):
     """Make list-valued explanation fields CSV-safe without changing scalars."""
     safe = rankings.copy(deep=True)
@@ -153,9 +196,18 @@ def _atomic_write_bytes(path, payload):
         temporary.unlink(missing_ok=True)
 
 
-def save_rankings_snapshot(rankings, league_key, data_path, metadata_path):
+def save_rankings_snapshot(
+    rankings,
+    league_key,
+    data_path,
+    metadata_path,
+    *,
+    production_publication=False,
+):
     """Validate then publish a new CSV generation through an atomic JSON pointer."""
     _validate_rankings(rankings)
+    if production_publication:
+        _validate_production_publication(rankings, league_key)
     data_path = Path(data_path)
     metadata_path = Path(metadata_path)
     safe_rankings = _json_safe_frame(rankings)
@@ -266,13 +318,26 @@ def _paths_from(paths):
     return data_path, metadata_path
 
 
-def load_rankings_with_fallback(league_key, builder, paths, timeout_seconds):
+def load_rankings_with_fallback(
+    league_key,
+    builder,
+    paths,
+    timeout_seconds,
+    *,
+    production_publication=False,
+):
     """Bound live construction and otherwise return the latest validated snapshot."""
     data_path, metadata_path = _paths_from(paths)
     try:
         rankings = run_with_timeout(lambda: builder(league_key), timeout_seconds)
         _validate_rankings(rankings)
-        status = save_rankings_snapshot(rankings, league_key, data_path, metadata_path)
+        status = save_rankings_snapshot(
+            rankings,
+            league_key,
+            data_path,
+            metadata_path,
+            production_publication=production_publication,
+        )
         return rankings, status
     except Exception as live_error:
         try:

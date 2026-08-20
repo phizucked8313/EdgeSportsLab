@@ -40,22 +40,40 @@ def expected_snake_slot(pick_number, team_count):
     return pick_in_round if round_number % 2 else team_count - pick_in_round + 1
 
 
-def synthetic_non_keeper_players(keeper_names):
-    """Yield deterministic, unique player rows that cannot collide with keepers."""
+def synthetic_non_keeper_players(keeper_names, count):
+    """Materialize a deterministic, finite non-keeper pool for the simulation."""
     keeper_keys = {str(name).strip().casefold() for name in keeper_names}
-    index = 1
-    while True:
+    players = []
+    for index in range(1, count + 1):
         name = f"Simulation Non-Keeper {index:03d}"
-        index += 1
         if name.casefold() in keeper_keys:
             continue
-        yield {
-            "player_name_clean": name,
-            "position": "WR",
-            "team": "SIM",
-            "bye_week": 10,
-            "draft_rank": index,
-        }
+        players.append(
+            {
+                "player_name_clean": name,
+                "position": "WR",
+                "team": "SIM",
+                "bye_week": 10,
+                "draft_rank": index,
+            }
+        )
+    return iter(players)
+
+
+def next_synthetic_player(players):
+    """Fail with simulation context instead of leaking a bare StopIteration."""
+    try:
+        return next(players)
+    except StopIteration as error:
+        raise AssertionError("Synthetic non-keeper player pool exhausted") from error
+
+
+def test_synthetic_non_keeper_pool_is_finite_and_fails_clearly_when_exhausted():
+    players = synthetic_non_keeper_players([], count=1)
+
+    assert next_synthetic_player(players)["player_name_clean"] == "Simulation Non-Keeper 001"
+    with pytest.raises(AssertionError, match="pool exhausted"):
+        next_synthetic_player(players)
 
 
 def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
@@ -93,7 +111,10 @@ def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
         assert reservation["pick_number"] == expected["pick_number"]
         assert reservation["fantasy_team"] == expected["fantasy_team"]
 
-    players = synthetic_non_keeper_players(expected_keeper_costs)
+    players = synthetic_non_keeper_players(
+        expected_keeper_costs,
+        count=int(league["team_count"]) * int(league["draft_rounds"]) + 24,
+    )
     checkpoints = {24, 84, 168}
     recovered = False
     boundary_cycle_completed = False
@@ -105,7 +126,7 @@ def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
         )
 
         if context["pick_number"] == 32 and not boundary_cycle_completed:
-            boundary_player = next(players)
+            boundary_player = next_synthetic_player(players)
             recorded = record_manual_pick(state, boundary_player, state_path)
             assert recorded["pick_number"] == 32
             assert state["current_pick"] == 34
@@ -122,7 +143,11 @@ def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
             assert 33 in state["processed_keeper_picks"]
             boundary_cycle_completed = True
         else:
-            recorded = record_manual_pick(state, next(players), state_path)
+            recorded = record_manual_pick(
+                state,
+                next_synthetic_player(players),
+                state_path,
+            )
 
         if recorded["pick_number"] in checkpoints:
             state = resume_existing_draft(state_path, archive_root=archive_root)
@@ -189,7 +214,7 @@ def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
     before_pick_181 = copy.deepcopy(state)
     before_pick_181_bytes = state_path.read_bytes()
     with pytest.raises(DraftCompleteError, match="180"):
-        record_manual_pick(state, next(players), state_path)
+        record_manual_pick(state, next_synthetic_player(players), state_path)
     assert state == before_pick_181
     assert state_path.read_bytes() == before_pick_181_bytes
 
@@ -200,7 +225,7 @@ def test_full_drunk_sundays_draft_restarts_recovers_and_recompletes(tmp_path):
     assert state["status"] == "active"
     assert not any(pick >= 169 for pick in state["processed_keeper_picks"])
 
-    record_manual_pick(state, next(players), state_path)
+    record_manual_pick(state, next_synthetic_player(players), state_path)
     state = load_war_room_state(state_path)
     assert state["current_pick"] == 181
     assert state["status"] == "complete"

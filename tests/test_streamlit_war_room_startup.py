@@ -69,7 +69,7 @@ def test_load_or_initialize_war_room_state_never_initializes_when_missing(
     assert calls == []
 
 
-def test_build_live_view_uses_startup_state_loader(monkeypatch):
+def test_build_live_view_uses_startup_state_loader(monkeypatch, tmp_path):
     state = _state()
     board = pd.DataFrame(
         [
@@ -117,7 +117,12 @@ def test_build_live_view_uses_startup_state_loader(monkeypatch):
         },
     )
 
-    snapshot = streamlit_app.build_live_view()
+    snapshot = streamlit_app.build_live_view(
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
+    )
 
     assert snapshot["rankings"] is board
     assert snapshot["state"] is state

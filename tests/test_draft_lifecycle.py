@@ -17,12 +17,16 @@ from fantasy_draft_model.draft_lifecycle import (
 from fantasy_draft_model.keepers import load_keepers
 from fantasy_draft_model.live_war_room import (
     build_keeper_reservations,
+    load_war_room_state,
     resolve_league,
+    save_war_room_state,
 )
 from fantasy_draft_model.state_persistence import (
+    StateLoadError,
     save_validated_state,
     state_backup_path,
 )
+from fantasy_draft_model.war_room_state import StateValidationError
 
 
 FIXED_NOW = datetime(2026, 8, 20, 18, 0, tzinfo=timezone.utc)
@@ -522,3 +526,93 @@ def test_recover_existing_draft_delegates_only_to_explicit_validated_recovery(tm
     assert recovered == valid_backup
     assert json.loads(path.read_text(encoding="utf-8")) == valid_backup
     assert any(candidate.read_bytes() == corrupt_before for candidate in archive_root.iterdir())
+
+
+def test_semantically_stale_authoritative_uses_current_keepers_to_offer_backup_recovery(
+    tmp_path,
+):
+    """A schema-valid but stale keeper declaration is not a resumable draft."""
+    path = tmp_path / "war-room.json"
+    archive_root = tmp_path / "archives"
+    backup_state = _schema_two_state(draft_id="canonical-backup")
+    authoritative_state = _schema_two_state(draft_id="stale-authoritative")
+    save_validated_state(backup_state, path)
+    save_validated_state(authoritative_state, path)
+
+    stale = json.loads(path.read_text(encoding="utf-8"))
+    stale["keeper_reservations"][-1]["player_name"] = "Stale Keeper Declaration"
+    _write_json(path, stale)
+
+    inspection = inspect_draft_lifecycle(path)
+
+    assert inspection.can_resume is False
+    assert inspection.can_recover is True
+    assert inspection.source == "backup"
+    assert "keeper_reservations" in str(inspection.authoritative_error)
+    assert inspection.state == backup_state
+
+    with pytest.raises(StateLoadError) as raised:
+        load_war_room_state(path)
+    assert raised.value.inspection.source == "backup"
+
+    recovered = recover_existing_draft(path, archive_root)
+
+    assert recovered == backup_state
+    assert json.loads(path.read_text(encoding="utf-8")) == backup_state
+
+
+def test_save_war_room_state_rejects_structurally_valid_stale_keeper_state(tmp_path):
+    path = tmp_path / "war-room.json"
+    stale = _schema_two_state(draft_id="stale-at-save")
+    stale["keeper_reservations"][-1]["player_name"] = "Stale Keeper Declaration"
+
+    with pytest.raises(StateValidationError, match="keeper_reservations"):
+        save_war_room_state(stale, path)
+
+    assert not path.exists()
+    assert not state_backup_path(path).exists()
+
+
+def test_explicit_recovery_writes_truthful_atomic_recovery_metadata(tmp_path):
+    path = tmp_path / "war-room.json"
+    archive_root = tmp_path / "archives"
+    backup = state_backup_path(path)
+    corrupt_bytes = b"{corrupt authoritative state"
+    valid_backup = _schema_two_state(draft_id="metadata-backup")
+    path.write_bytes(corrupt_bytes)
+    _write_json(backup, valid_backup)
+
+    recovered = recover_existing_draft(path, archive_root)
+    metadata_path = lifecycle.state_recovery_metadata_path(path)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert recovered == valid_backup
+    assert metadata["source"] == "backup"
+    assert metadata["backup_path"] == str(backup.resolve())
+    assert Path(metadata["archive_path"]).read_bytes() == corrupt_bytes
+    assert metadata["recovered_at"].endswith("+00:00")
+    assert metadata["authoritative_sha256"] == sha256(path.read_bytes()).hexdigest()
+    assert metadata["backup_sha256"] == sha256(backup.read_bytes()).hexdigest()
+
+
+def test_recovery_metadata_write_failure_does_not_report_a_committed_restore_as_failed(tmp_path):
+    path = tmp_path / "war-room.json"
+    archive_root = tmp_path / "archives"
+    backup = state_backup_path(path)
+    valid_backup = _schema_two_state(draft_id="metadata-write-failure")
+    path.write_bytes(b"{corrupt authoritative state")
+    _write_json(backup, valid_backup)
+    backup_before = backup.read_bytes()
+
+    def fail_metadata_write(*_args, **_kwargs):
+        raise OSError("injected metadata write failure")
+
+    recovered = recover_existing_draft(
+        path,
+        archive_root,
+        recovery_metadata_writer=fail_metadata_write,
+    )
+
+    assert recovered == valid_backup
+    assert json.loads(path.read_text(encoding="utf-8")) == valid_backup
+    assert backup.read_bytes() == backup_before

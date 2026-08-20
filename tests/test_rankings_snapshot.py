@@ -135,6 +135,20 @@ def test_snapshot_rejects_invalid_rankings(tmp_path, board, message):
         save_rankings_snapshot(board, "drunk_sundays", **_paths(tmp_path))
 
 
+def test_production_publication_rejects_one_row_four_column_synthetic_board(tmp_path):
+    """A fixture-sized board must never be eligible to publish production data."""
+    with pytest.raises(
+        ValueError,
+        match="minimum canonical draft capacity.*full War Room required columns",
+    ):
+        save_rankings_snapshot(
+            _board().loc[:, ["player_name_clean", "position", "team", "draft_rank"]].iloc[:1],
+            "drunk_sundays",
+            **_paths(tmp_path),
+            production_publication=True,
+        )
+
+
 def test_snapshot_rejects_mismatched_row_count(tmp_path):
     paths = _paths(tmp_path)
     save_rankings_snapshot(_board(), "drunk_sundays", **paths)
