@@ -1,7 +1,6 @@
 from dataclasses import replace
 
 import pandas as pd
-import pytest
 
 from fantasy_draft_model.draft_lifecycle import LifecycleInspection
 from fantasy_draft_model.rankings_snapshot import RankingRefreshError
@@ -94,6 +93,16 @@ def test_first_launch_renders_lifecycle_gate_without_building_live_board(monkeyp
     assert fake_st.button_calls["Start New Draft"]["disabled"] is False
     assert "draft-1" in fake_st.rendered_text
     assert "12 of 180" in fake_st.rendered_text
+
+
+def test_lifecycle_gate_displays_league_status_and_human_readable_state_age():
+    fake_st = FakeStreamlit()
+
+    streamlit_app.render_lifecycle_gate(fake_st, _inspection())
+
+    assert "Drunk Sundays" in fake_st.rendered_text
+    assert "active" in fake_st.rendered_text
+    assert "30s old" in fake_st.rendered_text
 
 
 def test_resume_authorizes_the_inspected_draft_id(monkeypatch):
@@ -247,3 +256,57 @@ def test_stale_authorized_undo_does_not_mutate_replacement_draft(monkeypatch):
     assert fake_st.rerun_count == 0
     assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
     assert any(kind == "error" and "changed" in text for kind, text in fake_st.messages)
+
+
+def test_recovery_returns_to_gate_until_the_recovered_draft_is_explicitly_resumed(
+    monkeypatch,
+):
+    fake_st = FakeStreamlit()
+    fake_st.button_values["Recover Backup"] = True
+    backup = replace(
+        _inspection("draft-a"),
+        state={"draft_id": "draft-a", "league_key": "drunk_sundays"},
+        source="backup",
+        can_resume=False,
+        can_recover=True,
+    )
+    recovered = {"draft_id": "recovered-draft", "league_key": "drunk_sundays"}
+    after_recovery = replace(
+        _inspection("recovered-draft"),
+        state=recovered,
+        can_resume=True,
+        can_recover=False,
+        source="authoritative",
+    )
+    inspections = iter([backup, after_recovery])
+    calls = []
+    monkeypatch.setattr(streamlit_app, "inspect_draft_lifecycle", lambda _path: next(inspections))
+    monkeypatch.setattr(
+        streamlit_app,
+        "recover_existing_draft",
+        lambda *_args: calls.append("recover") or recovered,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_live_view",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("recovery must not enter board")),
+    )
+
+    streamlit_app.run_war_room_ui(fake_st)
+
+    assert calls == ["recover"]
+    assert streamlit_app.DRAFT_AUTHORIZATION_KEY not in fake_st.session_state
+    assert fake_st.rerun_count == 1
+
+    fake_st.button_values["Recover Backup"] = False
+    fake_st.button_values["Resume Draft"] = True
+    monkeypatch.setattr(
+        streamlit_app,
+        "resume_existing_draft",
+        lambda *_args, **_kwargs: recovered,
+    )
+
+    streamlit_app.run_war_room_ui(fake_st)
+
+    assert fake_st.session_state[streamlit_app.DRAFT_AUTHORIZATION_KEY] == "recovered-draft"
+    assert fake_st.rerun_count == 2

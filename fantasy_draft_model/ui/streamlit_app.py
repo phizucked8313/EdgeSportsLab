@@ -243,13 +243,20 @@ def render_draft_complete(st, context):
 
 def render_lifecycle_gate(st, inspection):
     """Render the explicit Start/Resume choice and return the requested action."""
+    state_age = (
+        "unknown age"
+        if inspection.state_age_seconds is None
+        else f"{inspection.state_age_seconds:.0f}s old"
+    )
     _render_status_text(
         st,
         "Draft state: "
         f"id {inspection.draft_id or 'none'} | "
+        f"league {inspection.league_name or 'unknown'} | "
+        f"lifecycle {inspection.status or 'unknown'} | "
         f"source {inspection.source or 'none'} | "
         f"{inspection.completed_slots} of {inspection.total_slots or '?'} slots accounted for | "
-        f"updated {inspection.updated_at or 'unknown'}",
+        f"updated {inspection.updated_at or 'unknown'} | state age {state_age}",
     )
     _render_status_text(st, f"State artifact: {inspection.authoritative_path}")
     if st.button("Resume Draft", disabled=not inspection.can_resume):
@@ -437,7 +444,7 @@ def run_war_room_ui(st):
             except (StateLoadError, StateValidationError, ValueError, OSError) as error:
                 _render_lifecycle_error(st, error)
             else:
-                st.session_state[DRAFT_AUTHORIZATION_KEY] = recovered["draft_id"]
+                st.session_state.pop(DRAFT_AUTHORIZATION_KEY, None)
                 st.success(f"Recovered draft {recovered['draft_id']} from validated backup.")
                 st.rerun()
             return
