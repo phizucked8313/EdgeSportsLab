@@ -1,9 +1,6 @@
 """EdgeIQ Streamlit War Room shell."""
 
-from fantasy_draft_model.draft_assistant import (
-    build_draft_assistant,
-    build_draft_assistant_from_rankings,
-)
+from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
 from fantasy_draft_model.rankings import build_draft_rankings
 from fantasy_draft_model.live_war_room import (
     initialize_war_room,
@@ -12,6 +9,7 @@ from fantasy_draft_model.live_war_room import (
     undo_last_manual_pick,
 )
 from fantasy_draft_model.ui.draft_war_room import (
+    AVAILABLE_PLAYERS_ONLY_ATTR,
     build_live_draft_context,
     build_player_ranking_explanation,
     build_static_available_board_html,
@@ -44,26 +42,17 @@ def build_live_view(search_text="", position=None, base_rankings=None):
     state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
 
-    unavailable_records = (
-        state.get("manual_picks", [])
-        or state.get("keeper_reservations", [])
-    )
-    if base_rankings is None and not unavailable_records:
-        board = build_draft_assistant(
-            state["league_key"],
-            draft_context=context,
-        )
-    else:
-        if base_rankings is None:
-            base_rankings = build_draft_rankings(state["league_key"])
+    if base_rankings is None:
+        base_rankings = build_draft_rankings(state["league_key"])
 
-        available_rankings = filter_available_players(base_rankings, state)
-        if len(available_rankings) == len(base_rankings):
-            available_rankings = base_rankings
-        board = build_draft_assistant_from_rankings(
-            available_rankings,
-            draft_context=context,
-        )
+    available_rankings = filter_available_players(base_rankings, state)
+    if len(available_rankings) == len(base_rankings):
+        available_rankings = base_rankings
+    board = build_draft_assistant_from_rankings(
+        available_rankings,
+        draft_context=context,
+    )
+    board.attrs[AVAILABLE_PLAYERS_ONLY_ATTR] = True
 
     return build_war_room_snapshot(
         board,

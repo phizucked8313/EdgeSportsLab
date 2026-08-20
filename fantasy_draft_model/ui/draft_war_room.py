@@ -29,6 +29,8 @@ DRAFT_NIGHT_COLUMNS = [
     "injury_risk_score",
 ]
 
+AVAILABLE_PLAYERS_ONLY_ATTR = "_edgeiq_available_players_only"
+
 
 def normalize_player_name(value):
     return str(value).strip().casefold()
@@ -289,7 +291,10 @@ def enrich_user_roster_metadata(roster, rankings):
 
 def build_war_room_snapshot(rankings, state, search_text="", position=None, history_limit=10):
     """Compose read-only data for the War Room UI without mutating rankings."""
-    available = filter_available_players(rankings, state)
+    if rankings.attrs.get(AVAILABLE_PLAYERS_ONLY_ATTR, False):
+        available = rankings.copy().reset_index(drop=True)
+    else:
+        available = filter_available_players(rankings, state)
     filtered_available = apply_player_filters(
         available,
         search_text=search_text,

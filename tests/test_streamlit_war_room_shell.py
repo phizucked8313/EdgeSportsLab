@@ -38,15 +38,25 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
         raising=False,
     )
 
-    def fake_build_draft_assistant(league_key, draft_context=None):
+    def fake_build_rankings(league_key):
         calls["league_key"] = league_key
+        return board
+
+    def fake_build_draft_assistant_from_rankings(rankings, draft_context=None):
+        calls["rankings"] = rankings
         calls["draft_context"] = draft_context
         return board
 
     monkeypatch.setattr(
         streamlit_app,
-        "build_draft_assistant",
-        fake_build_draft_assistant,
+        "build_draft_rankings",
+        fake_build_rankings,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_draft_assistant_from_rankings",
+        fake_build_draft_assistant_from_rankings,
         raising=False,
     )
     monkeypatch.setattr(
@@ -75,6 +85,7 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
     snapshot = streamlit_app.build_live_view()
 
     assert calls["league_key"] == "drunk_sundays"
+    assert calls["rankings"] is board
     assert calls["draft_context"]["picks_until_user"] == 6
     assert snapshot["rankings"] is board
     assert snapshot["state"] is state
@@ -101,8 +112,14 @@ def test_build_live_view_forwards_ui_filters(monkeypatch):
     )
     monkeypatch.setattr(
         streamlit_app,
-        "build_draft_assistant",
-        lambda league_key, draft_context=None: board,
+        "build_draft_rankings",
+        lambda league_key: board,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_draft_assistant_from_rankings",
+        lambda rankings, draft_context=None: rankings,
         raising=False,
     )
     monkeypatch.setattr(

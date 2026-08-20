@@ -5,6 +5,21 @@ from fantasy_draft_model.engines.pressure_meter_engine import add_pressure_meter
 from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
 
 
+LIVE_SCORE_DEFAULTS = {
+    "vorp": 0.0,
+    "edgescore": 0.0,
+    "projection_score": 0.0,
+    "projection_confidence": 0.0,
+}
+
+EMPTY_BRAIN_COLUMNS = {
+    "brain_score": "float64",
+    "brain_recommendation": "object",
+    "brain_reasons": "object",
+    "brain_warnings": "object",
+}
+
+
 def build_draft_assistant_from_rankings(
     rankings,
     draft_context=None,
@@ -14,14 +29,21 @@ def build_draft_assistant_from_rankings(
         draft_context = {}
 
     live_rankings = rankings.copy()
-    if "tier" in live_rankings.columns:
-        live_rankings = add_live_tier_scarcity(live_rankings)
-        live_rankings = recalculate_live_draft_score(live_rankings)
+    for column, default in LIVE_SCORE_DEFAULTS.items():
+        if column not in live_rankings.columns:
+            live_rankings[column] = default
+
+    live_rankings = add_live_tier_scarcity(live_rankings)
+    live_rankings = recalculate_live_draft_score(live_rankings)
     live_rankings = add_pressure_meter(live_rankings)
-    live_rankings = add_draft_brain(
-        live_rankings,
-        draft_context,
-    )
+    if live_rankings.empty:
+        for column, dtype in EMPTY_BRAIN_COLUMNS.items():
+            live_rankings[column] = live_rankings.index.to_series().astype(dtype)
+    else:
+        live_rankings = add_draft_brain(
+            live_rankings,
+            draft_context,
+        )
     return (
         live_rankings
         .sort_values(

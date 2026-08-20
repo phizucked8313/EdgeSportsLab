@@ -333,20 +333,30 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
+    if "tier" not in df.columns:
+        df["tier"] = pd.NA
+
     df["tier_remaining"] = (
-        df.groupby(["position", "tier"])["tier"]
+        df.groupby(["position", "tier"], dropna=False)["tier"]
         .transform("size")
         .astype(int)
     )
 
+    tier_values = pd.to_numeric(df["tier"], errors="coerce")
+    tierless_mask = tier_values.isna()
+    df.loc[tierless_mask, "tier_remaining"] = 0
+
     tier_remaining = df["tier_remaining"]
-    tier_threshold = pd.to_numeric(df["tier_threshold"], errors="coerce").fillna(0.0)
+    tier_threshold = pd.to_numeric(
+        df.get("tier_threshold", pd.Series(0.0, index=df.index)),
+        errors="coerce",
+    ).fillna(0.0)
     projection_drop = pd.to_numeric(
-        df["tier_next_projection_drop"],
+        df.get("tier_next_projection_drop", pd.Series(0.0, index=df.index)),
         errors="coerce",
     ).fillna(0.0)
     vorp_drop = pd.to_numeric(
-        df["tier_next_vorp_drop"],
+        df.get("tier_next_vorp_drop", pd.Series(0.0, index=df.index)),
         errors="coerce",
     ).fillna(0.0)
 
@@ -361,7 +371,9 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         [projection_drop_pressure, vorp_drop_pressure],
         axis=1,
     ).max(axis=1)
-    depth_factor = df["tier"].map(_tier_depth_factor)
+    depth_factor = tier_values.map(
+        lambda tier: _tier_depth_factor(tier) if pd.notna(tier) else 0.0
+    )
 
     df["tier_scarcity_score"] = (
         depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)

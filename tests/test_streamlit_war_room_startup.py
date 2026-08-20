@@ -98,8 +98,13 @@ def test_build_live_view_uses_startup_state_loader(monkeypatch):
     )
     monkeypatch.setattr(
         streamlit_app,
-        "build_draft_assistant",
-        lambda league_key, draft_context=None: board,
+        "build_draft_rankings",
+        lambda league_key: board,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "build_draft_assistant_from_rankings",
+        lambda rankings, draft_context=None: rankings,
     )
     monkeypatch.setattr(
         streamlit_app,
