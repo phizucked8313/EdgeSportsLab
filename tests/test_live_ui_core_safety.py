@@ -40,6 +40,47 @@ print("core imports ok")
     assert "core imports ok" in result.stdout
 
 
+def test_streamlit_war_room_module_imports_when_streamlit_is_unavailable():
+    code = r'''
+import importlib.abc
+import sys
+
+class BlockStreamlit(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "streamlit" or fullname.startswith("streamlit."):
+            raise ImportError("streamlit intentionally unavailable")
+        return None
+
+sys.meta_path.insert(0, BlockStreamlit())
+
+import fantasy_draft_model.ui.streamlit_app
+print("streamlit shell import ok")
+'''
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "streamlit shell import ok" in result.stdout
+
+
+def test_streamlit_war_room_has_explicit_main_entrypoint():
+    app_path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "fantasy_draft_model"
+        / "ui"
+        / "streamlit_app.py"
+    )
+    source = app_path.read_text(encoding="utf-8")
+
+    assert "def main(" in source
+    assert "if __name__ == \"__main__\":" in source
+
+
 def test_cli_draft_board_filters_without_mutating_core_available_pool(monkeypatch):
     available = pd.DataFrame(
         [
@@ -79,7 +120,6 @@ def test_mock_draft_core_wiring_uses_rankings_and_cli_consumers_directly():
 def test_visual_ui_placeholders_remain_outside_core_execution_path():
     ui_dir = pathlib.Path(__file__).resolve().parents[1] / "fantasy_draft_model" / "ui"
     placeholder_names = [
-        "streamlit_app.py",
         "league_dashboard.py",
         "player_card_view.py",
     ]
