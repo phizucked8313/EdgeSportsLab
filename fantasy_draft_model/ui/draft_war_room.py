@@ -3,6 +3,16 @@ import pandas as pd
 from fantasy_draft_model.models.league_profile import get_league
 
 
+USER_ROSTER_COLUMNS = [
+    "player_name",
+    "position",
+    "nfl_team",
+    "round",
+    "pick_number",
+    "source",
+]
+
+
 def normalize_player_name(value):
     return str(value).strip().casefold()
 
@@ -111,3 +121,39 @@ def build_live_draft_context(state):
         "user_draft_slot": user_slot,
         "draft_complete": current_pick > total_picks,
     }
+
+
+def build_user_roster(state):
+    """Build the user's live roster from manual picks and keeper reservations."""
+    user_team = state.get("user_team", "")
+    roster_rows = []
+
+    for pick in state.get("manual_picks", []):
+        if pick.get("fantasy_team") != user_team:
+            continue
+        roster_rows.append(
+            {
+                "player_name": pick.get("player_name"),
+                "position": pick.get("position"),
+                "nfl_team": pick.get("nfl_team"),
+                "round": pick.get("round"),
+                "pick_number": pick.get("pick_number"),
+                "source": "draft",
+            }
+        )
+
+    for keeper in state.get("keeper_reservations", []):
+        if keeper.get("fantasy_team") != user_team:
+            continue
+        roster_rows.append(
+            {
+                "player_name": keeper.get("player_name"),
+                "position": keeper.get("position"),
+                "nfl_team": keeper.get("nfl_team"),
+                "round": keeper.get("round", keeper.get("keeper_round")),
+                "pick_number": keeper.get("pick_number"),
+                "source": "keeper",
+            }
+        )
+
+    return pd.DataFrame(roster_rows, columns=USER_ROSTER_COLUMNS)
