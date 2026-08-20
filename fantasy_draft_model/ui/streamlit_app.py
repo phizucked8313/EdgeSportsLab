@@ -120,16 +120,30 @@ def render_war_room_snapshot(st, snapshot):
 
 
 def render_draft_actions(st, snapshot):
-    """Render the live Record Pick and Undo Last Pick controls."""
+    """Render Record Pick in a form so selection changes do not rerun the app."""
     filtered_available = snapshot["filtered_available"]
     player_names = filtered_available["player_name_clean"].tolist()
-    selected_player = st.selectbox(
-        "Draft player",
-        player_names,
-        index=0,
-    )
 
-    if st.button("Record Pick", disabled=not player_names):
+    if hasattr(st, "form") and hasattr(st, "form_submit_button"):
+        with st.form("draft_player_form"):
+            selected_player = st.selectbox(
+                "Draft player",
+                player_names,
+                index=0,
+            )
+            record_pick = st.form_submit_button(
+                "Record Pick",
+                disabled=not player_names,
+            )
+    else:
+        selected_player = st.selectbox(
+            "Draft player",
+            player_names,
+            index=0,
+        )
+        record_pick = st.button("Record Pick", disabled=not player_names)
+
+    if record_pick:
         record_selected_player(snapshot["available"], selected_player)
         st.rerun()
 
