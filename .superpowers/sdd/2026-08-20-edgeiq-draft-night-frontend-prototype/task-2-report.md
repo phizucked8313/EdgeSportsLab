@@ -11,7 +11,7 @@ module was edited or imported.
 Command:
 
 ```powershell
-$env:PYTHONDONTWRITEBYTECODE='1'; <python> -m pytest tests/test_draft_night_preview_components.py --basetemp .pytest-tmp-task2-red
+$env:PYTHONDONTWRITEBYTECODE='1'; & 'C:\Users\Shawn Gutekunst\EdgeSportsLab\.venv\Scripts\python.exe' -m pytest tests/test_draft_night_preview_components.py --basetemp .pytest-tmp-task2-red
 ```
 
 Result: 9 passed, 1 failed. The new
@@ -24,10 +24,32 @@ expected missing-API failure before implementation.
 Command:
 
 ```powershell
-$env:PYTHONDONTWRITEBYTECODE='1'; <python> -m pytest tests/test_draft_night_preview_components.py --basetemp .pytest-tmp-task2-green
+$env:PYTHONDONTWRITEBYTECODE='1'; & 'C:\Users\Shawn Gutekunst\EdgeSportsLab\.venv\Scripts\python.exe' -m pytest tests/test_draft_night_preview_components.py --basetemp .pytest-tmp-task2-green
 ```
 
 Result: 10 passed in 0.32s.
+
+## Report-fix verification
+
+Command (run from the isolated worktree root):
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'; & 'C:\Users\Shawn Gutekunst\EdgeSportsLab\.venv\Scripts\python.exe' -m pytest tests/test_draft_night_preview_components.py --basetemp .pytest-tmp-task2-report-fix
+```
+
+Output:
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.14.6, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\Shawn Gutekunst\EdgeSportsLab\.worktrees\edgeiq-draft-night-frontend
+plugins: anyio-4.14.2
+collected 10 items
+
+tests\test_draft_night_preview_components.py ..........                  [100%]
+
+============================= 10 passed in 0.52s =============================
+```
 
 ## Implementation review
 
