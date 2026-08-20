@@ -185,6 +185,30 @@ def build_user_roster(state):
     return pd.DataFrame(roster_rows, columns=USER_ROSTER_COLUMNS)
 
 
+def enrich_user_roster_metadata(roster, rankings):
+    """Fill missing roster position/team metadata from the rankings board."""
+    enriched = roster.copy()
+    if enriched.empty or rankings.empty:
+        return enriched
+
+    lookup = rankings.copy()
+    lookup["_player_key"] = lookup["player_name_clean"].map(normalize_player_name)
+    lookup = lookup.drop_duplicates("_player_key").set_index("_player_key")
+
+    for index, row in enriched.iterrows():
+        player_key = normalize_player_name(row.get("player_name", ""))
+        if player_key not in lookup.index:
+            continue
+
+        match = lookup.loc[player_key]
+        if pd.isna(row.get("position")) or not str(row.get("position") or "").strip():
+            enriched.at[index, "position"] = match.get("position")
+        if pd.isna(row.get("nfl_team")) or not str(row.get("nfl_team") or "").strip():
+            enriched.at[index, "nfl_team"] = match.get("team")
+
+    return enriched
+
+
 def build_war_room_snapshot(rankings, state, search_text="", position=None, history_limit=10):
     """Compose read-only data for the War Room UI without mutating rankings."""
     available = filter_available_players(rankings, state)
@@ -193,11 +217,12 @@ def build_war_room_snapshot(rankings, state, search_text="", position=None, hist
         search_text=search_text,
         position=position,
     )
+    roster = enrich_user_roster_metadata(build_user_roster(state), rankings)
 
     return {
         "context": build_live_draft_context(state),
         "available": available,
         "filtered_available": filtered_available,
-        "roster": build_user_roster(state),
+        "roster": roster,
         "recent_history": build_recent_history(state, limit=history_limit),
     }
