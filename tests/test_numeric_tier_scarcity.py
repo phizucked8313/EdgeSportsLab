@@ -1,6 +1,49 @@
 import pandas as pd
 
-from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
+from fantasy_draft_model.engines.tier_engine import (
+    add_live_tier_scarcity,
+    add_tier_boundary_metadata,
+    calculate_tiers,
+)
+
+
+def test_boundary_metadata_uses_next_tier_drop_and_zeros_final_tier():
+    df = pd.DataFrame([
+        {"player_name_clean": "RB A", "position": "RB", "tier": 1,
+         "projected_points": 300.0, "vorp": 140.0, "tier_drop": 0.0, "tier_vorp_drop": 0.0},
+        {"player_name_clean": "RB B", "position": "RB", "tier": 1,
+         "projected_points": 290.0, "vorp": 130.0, "tier_drop": 10.0, "tier_vorp_drop": 10.0},
+        {"player_name_clean": "RB C", "position": "RB", "tier": 2,
+         "projected_points": 270.0, "vorp": 110.0, "tier_drop": 20.0, "tier_vorp_drop": 20.0},
+        {"player_name_clean": "RB D", "position": "RB", "tier": 2,
+         "projected_points": 265.0, "vorp": 105.0, "tier_drop": 5.0, "tier_vorp_drop": 5.0},
+        {"player_name_clean": "RB E", "position": "RB", "tier": 3,
+         "projected_points": 240.0, "vorp": 80.0, "tier_drop": 25.0, "tier_vorp_drop": 25.0},
+    ])
+
+    result = add_tier_boundary_metadata(df).set_index("player_name_clean")
+
+    assert result.loc["RB A", "tier_next_projection_drop"] == 20.0
+    assert result.loc["RB B", "tier_next_vorp_drop"] == 20.0
+    assert result.loc["RB C", "tier_next_projection_drop"] == 25.0
+    assert result.loc["RB D", "tier_next_vorp_drop"] == 25.0
+    assert result.loc["RB E", "tier_next_projection_drop"] == 0.0
+    assert result.loc["RB E", "tier_next_vorp_drop"] == 0.0
+
+
+def test_calculate_tiers_includes_boundary_metadata_for_each_tier():
+    df = pd.DataFrame([
+        {"player_name_clean": "RB A", "position": "RB", "projected_points": 300.0, "vorp": 140.0},
+        {"player_name_clean": "RB B", "position": "RB", "projected_points": 280.0, "vorp": 120.0},
+        {"player_name_clean": "RB C", "position": "RB", "projected_points": 250.0, "vorp": 90.0},
+    ])
+
+    result = calculate_tiers(df).set_index("player_name_clean")
+
+    assert result.loc["RB A", "tier_next_projection_drop"] == 20.0
+    assert result.loc["RB B", "tier_next_vorp_drop"] == 30.0
+    assert result.loc["RB C", "tier_next_projection_drop"] == 0.0
+    assert result.loc["RB C", "tier_next_vorp_drop"] == 0.0
 
 
 def test_late_singleton_is_capped_by_tier_depth():
