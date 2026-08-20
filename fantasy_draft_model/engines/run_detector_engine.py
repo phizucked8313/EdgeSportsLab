@@ -21,6 +21,52 @@ POSITIONS = [
 ]
 
 
+def build_position_run_cache(
+    rankings_df: pd.DataFrame,
+    drafted_picks,
+    recent_picks=8,
+):
+    """Build one position-run lookup from supplied live War Room picks."""
+    recent = list(drafted_picks or [])[-recent_picks:]
+
+    position_by_name = {
+        str(row["player_name_clean"]).strip().casefold(): row["position"]
+        for _, row in rankings_df[["player_name_clean", "position"]].iterrows()
+    }
+
+    counts = {position: 0 for position in POSITIONS}
+    for pick in recent:
+        player_name = str(pick.get("player_name", "")).strip().casefold()
+        position = pick.get("position") or position_by_name.get(player_name)
+        if position in counts:
+            counts[position] += 1
+
+    cache = {}
+    for position in POSITIONS:
+        count = counts[position]
+        run_rate = count / recent_picks
+        run_score = min(100, run_rate * 200)
+
+        if count >= 5:
+            label = "RUN ACTIVE"
+        elif count >= 3:
+            label = "RUN STARTING"
+        elif count == 2:
+            label = "WATCH"
+        else:
+            label = "NORMAL"
+
+        cache[position] = {
+            "position": position,
+            "recent_picks": recent_picks,
+            "position_picks": count,
+            "run_score": round(run_score, 1),
+            "run_label": label,
+        }
+
+    return cache
+
+
 def get_recent_drafted_players(
     rankings_df: pd.DataFrame,
     recent_picks=8,
