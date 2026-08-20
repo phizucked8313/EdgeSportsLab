@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 from fantasy_draft_model.ui import streamlit_app
 
@@ -170,6 +171,9 @@ class FakeStreamlit:
         self.player_value = None
         self.button_values = {}
         self.rerun_count = 0
+        self.session_state = {
+            streamlit_app.DRAFT_AUTHORIZATION_KEY: "draft-1",
+        }
 
     def metric(self, label, value):
         self.metrics.append((label, value))
@@ -259,7 +263,7 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
     snapshot = {"ok": True}
     captured = {}
 
-    def fake_build_live_view(search_text="", position=None):
+    def fake_build_live_view(search_text="", position=None, **_kwargs):
         captured["search_text"] = search_text
         captured["position"] = position
         return snapshot
@@ -288,6 +292,16 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
         "render_draft_actions",
         fake_actions,
         raising=False,
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "inspect_draft_lifecycle",
+        lambda _path: SimpleNamespace(draft_id="draft-1", state=_state()),
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_or_build_base_rankings",
+        lambda *_args, **_kwargs: pd.DataFrame(),
     )
 
     streamlit_app.run_war_room_ui(fake_st)

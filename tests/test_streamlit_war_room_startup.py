@@ -40,7 +40,7 @@ def test_load_or_initialize_war_room_state_preserves_existing_state(monkeypatch)
     assert calls["initialize"] == 0
 
 
-def test_load_or_initialize_war_room_state_initializes_drunk_sundays_when_missing(
+def test_load_or_initialize_war_room_state_never_initializes_when_missing(
     monkeypatch,
 ):
     initialized = _state()
@@ -61,10 +61,12 @@ def test_load_or_initialize_war_room_state_initializes_drunk_sundays_when_missin
         raising=False,
     )
 
-    result = streamlit_app.load_or_initialize_war_room_state()
+    import pytest
 
-    assert result is initialized
-    assert calls == ["drunk_sundays"]
+    with pytest.raises(FileNotFoundError, match="missing"):
+        streamlit_app.load_or_initialize_war_room_state()
+
+    assert calls == []
 
 
 def test_build_live_view_uses_startup_state_loader(monkeypatch):
