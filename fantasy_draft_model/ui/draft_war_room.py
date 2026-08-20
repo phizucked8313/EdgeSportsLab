@@ -229,7 +229,7 @@ def build_live_draft_context(state):
         raise ValueError(f"User team not found in draft order: {user_team}")
 
     user_slot = draft_order.index(user_team) + 1
-    total_picks = team_count * draft_rounds
+    total_picks = int(state.get("total_picks", team_count * draft_rounds))
     next_user_pick = None
 
     for round_number in range(1, draft_rounds + 1):
@@ -256,7 +256,10 @@ def build_live_draft_context(state):
         "picks_until_user": picks_until_user,
         "user_on_clock": user_on_clock,
         "user_draft_slot": user_slot,
-        "draft_complete": current_pick > total_picks,
+        "draft_complete": state.get("status") == "complete" or current_pick > total_picks,
+        "total_picks": total_picks,
+        "accounted_picks": len(state.get("manual_picks", []))
+        + len(state.get("processed_keeper_picks", [])),
         "drafted_picks": state.get("manual_picks", []),
     }
 

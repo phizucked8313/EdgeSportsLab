@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
 from fantasy_draft_model.ui import streamlit_app
 
@@ -17,7 +18,7 @@ def _state():
     }
 
 
-def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
+def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch, tmp_path):
     state = _state()
     board = pd.DataFrame(
         [
@@ -82,7 +83,12 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
         raising=False,
     )
 
-    snapshot = streamlit_app.build_live_view()
+    snapshot = streamlit_app.build_live_view(
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
+    )
 
     assert calls["league_key"] == "drunk_sundays"
     assert calls["rankings"] is board
@@ -91,7 +97,7 @@ def test_build_live_view_uses_state_context_and_assistant_board(monkeypatch):
     assert snapshot["state"] is state
 
 
-def test_build_live_view_forwards_ui_filters(monkeypatch):
+def test_build_live_view_forwards_ui_filters(monkeypatch, tmp_path):
     state = _state()
     board = pd.DataFrame(
         [
@@ -148,9 +154,14 @@ def test_build_live_view_forwards_ui_filters(monkeypatch):
     result = streamlit_app.build_live_view(
         search_text="beta",
         position="RB",
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
     )
 
-    assert result == {"ok": True}
+    assert result["ok"] is True
+    assert result["ranking_data_status"].source == "LIVE"
     assert captured == {
         "search_text": "beta",
         "position": "RB",
@@ -169,6 +180,9 @@ class FakeStreamlit:
         self.player_value = None
         self.button_values = {}
         self.rerun_count = 0
+        self.session_state = {
+            streamlit_app.DRAFT_AUTHORIZATION_KEY: "draft-1",
+        }
 
     def metric(self, label, value):
         self.metrics.append((label, value))
@@ -258,7 +272,7 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
     snapshot = {"ok": True}
     captured = {}
 
-    def fake_build_live_view(search_text="", position=None):
+    def fake_build_live_view(search_text="", position=None, **_kwargs):
         captured["search_text"] = search_text
         captured["position"] = position
         return snapshot
@@ -267,9 +281,10 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
         captured["st"] = st
         captured["snapshot"] = supplied_snapshot
 
-    def fake_actions(st, supplied_snapshot):
+    def fake_actions(st, supplied_snapshot, **kwargs):
         captured["actions_st"] = st
         captured["actions_snapshot"] = supplied_snapshot
+        captured["actions_expected_draft_id"] = kwargs["expected_draft_id"]
 
     monkeypatch.setattr(
         streamlit_app,
@@ -288,6 +303,16 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
         fake_actions,
         raising=False,
     )
+    monkeypatch.setattr(
+        streamlit_app,
+        "inspect_draft_lifecycle",
+        lambda _path: SimpleNamespace(draft_id="draft-1", state=_state()),
+    )
+    monkeypatch.setattr(
+        streamlit_app,
+        "get_or_build_base_rankings",
+        lambda *_args, **_kwargs: pd.DataFrame(),
+    )
 
     streamlit_app.run_war_room_ui(fake_st)
 
@@ -297,6 +322,7 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
     assert captured["snapshot"] is snapshot
     assert captured["actions_st"] is fake_st
     assert captured["actions_snapshot"] is snapshot
+    assert captured["actions_expected_draft_id"] == "draft-1"
 
 
 def test_record_selected_player_uses_fresh_state_and_core_recorder(monkeypatch):
@@ -383,7 +409,7 @@ def test_render_draft_actions_records_selected_player_and_reruns(monkeypatch):
     }
     captured = {}
 
-    def fake_record(supplied_available, player_name):
+    def fake_record(supplied_available, player_name, **_kwargs):
         captured["available"] = supplied_available
         captured["player_name"] = player_name
         return {"player_name": player_name, "pick_number": 10}
@@ -413,7 +439,7 @@ def test_render_draft_actions_undoes_latest_pick_and_reruns(monkeypatch):
     removed = {"player_name": "Alpha WR", "pick_number": 10}
     captured = {}
 
-    def fake_undo():
+    def fake_undo(**_kwargs):
         captured["called"] = True
         return removed
 

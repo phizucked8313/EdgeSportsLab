@@ -56,3 +56,9 @@ Edge Sports Lab is a Sports Intelligence Platform built to help users make bette
 🚧 Sprint 001
 
 Project Initialization
+
+## Draft-night operations
+
+See the [EdgeIQ Draft-Night Runbook](docs/DRAFT_NIGHT_RUNBOOK.md) for the
+pinned dependencies, exact Windows launch command, lifecycle gate, offline
+rankings behavior, and evidence-preserving recovery steps.

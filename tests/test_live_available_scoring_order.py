@@ -154,6 +154,7 @@ def test_build_live_view_removes_keeper_before_scoring_and_enriches_roster_metad
 
 def test_no_cache_and_no_unavailable_players_still_uses_canonical_filter(
     monkeypatch,
+    tmp_path,
 ):
     rankings = _mixed_rankings()
     state = _state()
@@ -169,7 +170,12 @@ def test_no_cache_and_no_unavailable_players_still_uses_canonical_filter(
     monkeypatch.setattr(streamlit_app, "filter_available_players", tracking_filter)
     monkeypatch.setattr(draft_war_room, "filter_available_players", tracking_filter)
 
-    snapshot = streamlit_app.build_live_view()
+    snapshot = streamlit_app.build_live_view(
+        paths={
+            "data_path": tmp_path / "rankings.csv",
+            "metadata_path": tmp_path / "rankings.json",
+        },
+    )
 
     assert len(filter_calls) == 1
     assert snapshot["available"]["player_name_clean"].tolist()

@@ -1,3 +1,4 @@
+import copy
 import importlib
 
 import pandas as pd
@@ -55,6 +56,37 @@ def _player_row(name="Test Player"):
     )
 
 
+def _seed_accounted_manual_picks(war_room, state, current_pick):
+    draft_order = war_room.resolve_league("drunk_sundays")["draft_order"]
+    reserved = {
+        int(reservation["pick_number"])
+        for reservation in state["keeper_reservations"]
+    }
+    state["manual_picks"] = []
+    state["processed_keeper_picks"] = []
+    for pick_number in range(1, current_pick):
+        if pick_number in reserved:
+            state["processed_keeper_picks"].append(pick_number)
+            continue
+        round_number = ((pick_number - 1) // 12) + 1
+        pick_in_round = ((pick_number - 1) % 12) + 1
+        draft_slot = pick_in_round if round_number % 2 else 13 - pick_in_round
+        state["manual_picks"].append(
+            {
+                "player_name": f"Seed Player {pick_number}",
+                "position": "WR",
+                "nfl_team": "CLE",
+                "bye_week": 10,
+                "draft_rank": pick_number,
+                "fantasy_team": draft_order[draft_slot - 1],
+                "pick_number": pick_number,
+                "round": round_number,
+                "draft_slot": draft_slot,
+            }
+        )
+    state["current_pick"] = current_pick
+
+
 def test_canonical_league_profile_contains_user_team():
     drunk = get_league("Drunk Sundays")
     somewhat = get_league("Somewhat Related")
@@ -88,7 +120,12 @@ def test_initialize_and_reload_war_room_state(tmp_path, monkeypatch):
         state_path=state_path,
     )
 
-    assert state["schema_version"] == 1
+    assert state["schema_version"] == 2
+    assert state["total_picks"] == 180
+    assert state["status"] == "active"
+    assert state["draft_id"]
+    assert state["created_at"].endswith("+00:00")
+    assert state["updated_at"].endswith("+00:00")
     assert state["league_name"] == "Drunk Sundays"
     assert state["league_key"] == "drunk_sundays"
     assert state["user_team"] == "BLKWDW'S"
@@ -231,7 +268,7 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 16
+    _seed_accounted_manual_picks(war_room, state, 16)
 
     war_room.record_manual_pick(
         state,
@@ -240,8 +277,8 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
     )
 
     assert state["current_pick"] == 17
-    assert len(state["manual_picks"]) == 1
-    pick = state["manual_picks"][0]
+    assert len(state["manual_picks"]) == 16
+    pick = state["manual_picks"][-1]
     assert pick["player_name"] == "Manual Test WR"
     assert pick["position"] == "WR"
     assert pick["nfl_team"] == "CLE"
@@ -253,6 +290,99 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
     assert pick["draft_slot"] == 9
 
     assert war_room.load_war_room_state(state_path) == state
+
+
+def _valid_state_at_pick_180(tmp_path, monkeypatch):
+    war_room = _war_room_module()
+    state_path = tmp_path / "war_room_state.json"
+    monkeypatch.setattr(
+        war_room,
+        "load_keepers",
+        lambda league_name=None: _empty_keepers(),
+    )
+    state = war_room.initialize_war_room("drunk_sundays", state_path=state_path)
+    draft_order = war_room.resolve_league("drunk_sundays")["draft_order"]
+    manual_picks = []
+    for pick_number in range(1, 180):
+        round_number = ((pick_number - 1) // 12) + 1
+        pick_in_round = ((pick_number - 1) % 12) + 1
+        draft_slot = pick_in_round if round_number % 2 else 13 - pick_in_round
+        manual_picks.append(
+            {
+                "player_name": f"Player {pick_number}",
+                "position": "WR",
+                "nfl_team": "CLE",
+                "bye_week": 10,
+                "draft_rank": pick_number,
+                "fantasy_team": draft_order[draft_slot - 1],
+                "pick_number": pick_number,
+                "round": round_number,
+                "draft_slot": draft_slot,
+            }
+        )
+    state["manual_picks"] = manual_picks
+    state["current_pick"] = 180
+    return war_room, state, state_path
+
+
+def test_final_pick_completes_and_undo_reopens_draft(tmp_path, monkeypatch):
+    war_room, state, state_path = _valid_state_at_pick_180(tmp_path, monkeypatch)
+
+    pick = war_room.record_manual_pick(
+        state,
+        _player_row("Final Player"),
+        state_path,
+    )
+
+    assert pick["pick_number"] == 180
+    assert state["current_pick"] == 181
+    assert state["status"] == "complete"
+
+    before = copy.deepcopy(state)
+    with pytest.raises(war_room.DraftCompleteError, match="180"):
+        war_room.record_manual_pick(state, _player_row("Pick 181"), state_path)
+    assert state == before
+
+    removed = war_room.undo_last_manual_pick(state, state_path)
+    assert removed["pick_number"] == 180
+    assert state["current_pick"] == 180
+    assert state["status"] == "active"
+
+
+def test_get_pick_context_rejects_pick_after_draft_completion(tmp_path, monkeypatch):
+    war_room, state, _ = _valid_state_at_pick_180(tmp_path, monkeypatch)
+    state["current_pick"] = 181
+    state["status"] = "complete"
+
+    with pytest.raises(war_room.DraftCompleteError, match="180"):
+        war_room.get_pick_context(state)
+
+
+def test_live_context_reports_all_slots_accounted_at_completion(tmp_path, monkeypatch):
+    from fantasy_draft_model.ui.draft_war_room import build_live_draft_context
+
+    _, state, _ = _valid_state_at_pick_180(tmp_path, monkeypatch)
+    state["manual_picks"].append(
+        {
+            "player_name": "Final Player",
+            "position": "WR",
+            "nfl_team": "CLE",
+            "bye_week": 10,
+            "draft_rank": 180,
+            "fantasy_team": "Parrots",
+            "pick_number": 180,
+            "round": 15,
+            "draft_slot": 12,
+        }
+    )
+    state["current_pick"] = 181
+    state["status"] = "complete"
+
+    context = build_live_draft_context(state)
+
+    assert context["draft_complete"] is True
+    assert context["total_picks"] == 180
+    assert context["accounted_picks"] == 180
 
 
 def test_record_manual_pick_rejects_duplicate_without_advancing(
@@ -305,7 +435,8 @@ def test_undo_last_manual_pick_restores_pick_and_persists(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 16
+    _seed_accounted_manual_picks(war_room, state, 16)
+    manual_picks_before = copy.deepcopy(state["manual_picks"])
     war_room.record_manual_pick(
         state,
         _player_row("Undo Test WR"),
@@ -318,7 +449,7 @@ def test_undo_last_manual_pick_restores_pick_and_persists(
     )
 
     assert removed["player_name"] == "Undo Test WR"
-    assert state["manual_picks"] == []
+    assert state["manual_picks"] == manual_picks_before
     assert state["current_pick"] == 16
     assert war_room.load_war_room_state(state_path) == state
 
@@ -338,7 +469,7 @@ def test_undo_last_manual_pick_reopens_crossed_keeper_slot(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 32
+    _seed_accounted_manual_picks(war_room, state, 32)
 
     war_room.record_manual_pick(
         state,
@@ -385,3 +516,22 @@ def test_undo_last_manual_pick_rejects_empty_history_without_mutation(
 
     assert state == before
     assert war_room.load_war_room_state(state_path) == state
+
+
+def test_initialize_war_room_returns_constructed_state_when_injected_saver_returns_none():
+    war_room = _war_room_module()
+    saved = []
+
+    def save_without_return(state, path):
+        saved.append((state, path))
+
+    state = war_room.initialize_war_room(
+        "drunk_sundays",
+        state_path="ignored-state-path.json",
+        keeper_loader=lambda _league_name: _empty_keepers(),
+        state_saver=save_without_return,
+    )
+
+    assert state is saved[0][0]
+    assert state["league_key"] == "drunk_sundays"
+    assert state["keeper_reservations"] == []

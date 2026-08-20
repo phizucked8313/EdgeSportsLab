@@ -1,0 +1,7 @@
+# Direct runtime and test dependencies verified in Python 3.14.6.
+pandas==3.0.5
+numpy==2.5.2
+requests==2.34.2
+nflreadpy==0.1.5
+streamlit==1.61.1
+pytest==9.1.1
