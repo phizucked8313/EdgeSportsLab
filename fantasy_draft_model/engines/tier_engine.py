@@ -23,11 +23,22 @@ TIER_THRESHOLD_MULTIPLIERS = {
     3: 1.50,
 }
 
+TIER_DEPTH_FACTORS = {
+    1: 1.00,
+    2: 0.85,
+    3: 0.70,
+    4: 0.55,
+}
+
 
 def get_tier_threshold(position, current_tier):
     base = float(POSITION_TIER_THRESHOLDS.get(position, 15))
     multiplier = TIER_THRESHOLD_MULTIPLIERS.get(int(current_tier), 1.75)
     return base * multiplier
+
+
+def _tier_depth_factor(tier):
+    return TIER_DEPTH_FACTORS.get(int(tier), 0.40)
 
 
 # ============================================================
@@ -268,6 +279,98 @@ def add_tier_size(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
+# TIER BOUNDARY METADATA
+# ============================================================
+
+def add_tier_boundary_metadata(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add the projection and VORP drop to the next tier for each player.
+    """
+
+    df = df.copy()
+
+    df["tier_next_projection_drop"] = 0.0
+    df["tier_next_vorp_drop"] = 0.0
+
+    for position, position_df in df.groupby("position"):
+        position_df = position_df.sort_values(
+            by=["projected_points", "vorp"],
+            ascending=False,
+        )
+
+        next_projection_drops = (
+            position_df.groupby("tier", sort=True)["tier_drop"]
+            .first()
+            .shift(-1)
+            .fillna(0.0)
+        )
+        next_vorp_drops = (
+            position_df.groupby("tier", sort=True)["tier_vorp_drop"]
+            .first()
+            .shift(-1)
+            .fillna(0.0)
+        )
+
+        position_mask = df["position"] == position
+        df.loc[position_mask, "tier_next_projection_drop"] = (
+            df.loc[position_mask, "tier"].map(next_projection_drops)
+        )
+        df.loc[position_mask, "tier_next_vorp_drop"] = (
+            df.loc[position_mask, "tier"].map(next_vorp_drops)
+        )
+
+    return df
+
+
+# ============================================================
+# LIVE TIER SCARCITY
+# ============================================================
+
+def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Score scarcity from the players currently remaining in each tier.
+    """
+
+    df = df.copy()
+
+    df["tier_remaining"] = (
+        df.groupby(["position", "tier"])["tier"]
+        .transform("size")
+        .astype(int)
+    )
+
+    tier_remaining = df["tier_remaining"]
+    tier_threshold = pd.to_numeric(df["tier_threshold"], errors="coerce").fillna(0.0)
+    projection_drop = pd.to_numeric(
+        df["tier_next_projection_drop"],
+        errors="coerce",
+    ).fillna(0.0)
+    vorp_drop = pd.to_numeric(
+        df["tier_next_vorp_drop"],
+        errors="coerce",
+    ).fillna(0.0)
+
+    remaining_pressure = (100.0 / tier_remaining.clip(lower=1)).clip(upper=100.0)
+    projection_drop_pressure = (
+        100.0 * projection_drop / tier_threshold.clip(lower=1.0)
+    ).clip(upper=100.0)
+    vorp_drop_pressure = (
+        100.0 * vorp_drop / tier_threshold.clip(lower=1.0)
+    ).clip(upper=100.0)
+    drop_pressure = pd.concat(
+        [projection_drop_pressure, vorp_drop_pressure],
+        axis=1,
+    ).max(axis=1)
+    depth_factor = df["tier"].map(_tier_depth_factor)
+
+    df["tier_scarcity_score"] = (
+        depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
+    ).round(2)
+
+    return df
+
+
+# ============================================================
 # TIER STATUS
 # ============================================================
 
@@ -330,6 +433,10 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
         "tier_vorp_drop",
         "tier_threshold",
         "tier_size",
+        "tier_next_projection_drop",
+        "tier_next_vorp_drop",
+        "tier_remaining",
+        "tier_scarcity_score",
         "tier_status",
     ]
 
@@ -354,6 +461,14 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df = add_tier_size(
+        df
+    )
+
+    df = add_tier_boundary_metadata(
+        df
+    )
+
+    df = add_live_tier_scarcity(
         df
     )
 
