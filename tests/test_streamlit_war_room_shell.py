@@ -145,6 +145,7 @@ class FakeStreamlit:
         self.metrics = []
         self.subheaders = []
         self.dataframes = []
+        self.markdowns = []
         self.messages = []
         self.search_value = ""
         self.position_value = "ALL"
@@ -160,6 +161,9 @@ class FakeStreamlit:
 
     def dataframe(self, dataframe, **kwargs):
         self.dataframes.append(dataframe)
+
+    def markdown(self, body, **kwargs):
+        self.markdowns.append((str(body), kwargs))
 
     def success(self, text):
         self.messages.append(("success", text))
@@ -224,7 +228,10 @@ def test_render_war_room_snapshot_shows_context_and_live_panels():
         "Your Roster",
         "Recent Draft History",
     ]
-    assert fake_st.dataframes == [available, roster, history]
+    assert len(fake_st.markdowns) == 1
+    assert "Beta RB" in fake_st.markdowns[0][0]
+    assert fake_st.markdowns[0][1]["unsafe_allow_html"] is True
+    assert fake_st.dataframes == [roster, history]
 
 
 def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
