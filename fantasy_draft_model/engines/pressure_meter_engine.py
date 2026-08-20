@@ -73,14 +73,12 @@ def calculate_pressure_score(
     ] = 60
 
     df.loc[
-        df["tier_status"]
-        == "TIER ALMOST GONE",
+        df["tier_status"].isin(["SMALL TIER", "TIER ALMOST GONE"]),
         "tier_pressure"
     ] = 85
 
     df.loc[
-        df["tier_status"]
-        == "LAST PLAYER IN TIER",
+        df["tier_status"].isin(["ELITE SOLO TIER", "LAST PLAYER IN TIER"]),
         "tier_pressure"
     ] = 100
 
