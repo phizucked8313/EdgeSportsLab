@@ -1,6 +1,8 @@
+import ast
 from dataclasses import FrozenInstanceError
 from importlib import import_module
 from importlib.util import find_spec
+from pathlib import Path
 
 import pytest
 
@@ -78,6 +80,7 @@ def test_available_players_emits_columns_recommendations_and_statuses():
         "WR Tier 2",
     ):
         assert label in html
+    assert 'class="player-row availability-unavailable"' in html
 
 
 def test_roster_and_history_show_required_draft_context():
@@ -204,3 +207,65 @@ def test_preview_css_scopes_the_dark_responsive_draft_night_system():
 
     assert "text-overflow: ellipsis" not in css
     assert "line-clamp" not in css
+
+
+PREVIEW_ROOT = Path(__file__).resolve().parents[1] / "prototypes" / "draft_night_preview"
+
+
+def _import_roots(path: Path) -> set[str]:
+    """Return the roots of all imports declared by a Python module."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    roots = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".", maxsplit=1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            roots.add(node.module.split(".", maxsplit=1)[0])
+    return roots
+
+
+def test_preview_modules_do_not_import_production_draft_model():
+    """Coupling the isolated prototype to production modules must fail fast."""
+    assert not [
+        path for path in PREVIEW_ROOT.rglob("*.py")
+        if "fantasy_draft_model" in _import_roots(path)
+    ]
+
+
+def test_streamlit_entry_point_composes_each_preview_state_and_renderer():
+    """Removing a required preview surface must break the standalone entry point."""
+    app_path = PREVIEW_ROOT / "app.py"
+    assert app_path.is_file(), "app.py must provide the standalone Streamlit entry point"
+    source = app_path.read_text(encoding="utf-8")
+
+    for required_reference in (
+        "Live Draft",
+        "Draft Complete",
+        "render_draft_header",
+        "render_available_players",
+        "render_roster",
+        "render_history",
+        "render_explanation",
+        "render_at_risk",
+        "render_wait_panel",
+        "render_draft_complete",
+        "preview_css",
+    ):
+        assert required_reference in source
+
+
+def test_readme_documents_standalone_synthetic_prototype_boundaries():
+    """Documentation must prevent treating prototype data or insights as production output."""
+    readme_path = PREVIEW_ROOT / "README.md"
+    assert readme_path.is_file(), "README.md must document how to run the preview safely"
+    readme = readme_path.read_text(encoding="utf-8")
+
+    for required_text in (
+        "streamlit run prototypes/draft_night_preview/app.py",
+        "synthetic-only",
+        "Prototype display · synthetic risk",
+        "Prototype display · synthetic scenario",
+        "fantasy_draft_model",
+        "persistence",
+    ):
+        assert required_text in readme
