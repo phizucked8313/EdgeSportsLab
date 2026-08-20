@@ -1,6 +1,10 @@
 """EdgeIQ Streamlit War Room shell."""
 
-from fantasy_draft_model.draft_assistant import build_draft_assistant
+from fantasy_draft_model.draft_assistant import (
+    build_draft_assistant,
+    build_draft_assistant_from_rankings,
+)
+from fantasy_draft_model.rankings import build_draft_rankings
 from fantasy_draft_model.live_war_room import (
     initialize_war_room,
     load_war_room_state,
@@ -15,6 +19,7 @@ from fantasy_draft_model.ui.draft_war_room import (
 
 
 POSITION_OPTIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"]
+BASE_RANKINGS_CACHE_KEY = "_edgeiq_base_rankings_cache"
 
 
 def load_or_initialize_war_room_state():
@@ -25,14 +30,29 @@ def load_or_initialize_war_room_state():
         return initialize_war_room("drunk_sundays")
 
 
-def build_live_view(search_text="", position=None):
-    """Build the read-only War Room snapshot used by the Streamlit shell."""
+def get_or_build_base_rankings(cache, league_key):
+    """Build expensive rankings once per league and reuse them from the supplied cache."""
+    if league_key not in cache:
+        cache[league_key] = build_draft_rankings(league_key)
+    return cache[league_key]
+
+
+def build_live_view(search_text="", position=None, base_rankings=None):
+    """Build the War Room snapshot using fresh live context and optional cached rankings."""
     state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
-    board = build_draft_assistant(
-        state["league_key"],
-        draft_context=context,
-    )
+
+    if base_rankings is None:
+        board = build_draft_assistant(
+            state["league_key"],
+            draft_context=context,
+        )
+    else:
+        board = build_draft_assistant_from_rankings(
+            base_rankings,
+            draft_context=context,
+        )
+
     return build_war_room_snapshot(
         board,
         state,
@@ -120,13 +140,32 @@ def render_draft_actions(st, snapshot):
 
 
 def run_war_room_ui(st):
-    """Collect UI filters, build the live view, render it, and expose draft actions."""
+    """Collect filters, reuse cached rankings, render the live view, and expose actions."""
     search_text = st.text_input("Search players", value="")
     position = st.selectbox("Position", POSITION_OPTIONS, index=0)
-    snapshot = build_live_view(
-        search_text=search_text,
-        position=position,
-    )
+
+    base_rankings = None
+    if hasattr(st, "session_state"):
+        state = load_or_initialize_war_room_state()
+        if BASE_RANKINGS_CACHE_KEY not in st.session_state:
+            st.session_state[BASE_RANKINGS_CACHE_KEY] = {}
+        base_rankings = get_or_build_base_rankings(
+            st.session_state[BASE_RANKINGS_CACHE_KEY],
+            state["league_key"],
+        )
+
+    if base_rankings is None:
+        snapshot = build_live_view(
+            search_text=search_text,
+            position=position,
+        )
+    else:
+        snapshot = build_live_view(
+            search_text=search_text,
+            position=position,
+            base_rankings=base_rankings,
+        )
+
     render_war_room_snapshot(st, snapshot)
     render_draft_actions(st, snapshot)
 
