@@ -72,12 +72,12 @@ def build_draft_brain_for_player(
     scarcity_score = 25
     if tier_status == "LIMITED TIER":
         scarcity_score = 60
-    elif tier_status == "TIER ALMOST GONE":
+    elif tier_status in ["SMALL TIER", "TIER ALMOST GONE"]:
         scarcity_score = 85
-    elif tier_status == "LAST PLAYER IN TIER":
+    elif tier_status in ["ELITE SOLO TIER", "LAST PLAYER IN TIER"]:
         scarcity_score = 100
 
-    vorp_score = clamp(vorp)
+    vorp_score = clamp(player_row.get("vorp_score", vorp))
     safety_score = clamp(100 - injury_risk)
 
     brain_score = (
@@ -98,9 +98,9 @@ def build_draft_brain_for_player(
     if pressure >= 85:
         reasons.append("Very high draft pressure")
 
-    if tier_status == "LAST PLAYER IN TIER":
+    if tier_status in ["ELITE SOLO TIER", "LAST PLAYER IN TIER"]:
         reasons.append("Last player remaining in current tier")
-    elif tier_status == "TIER ALMOST GONE":
+    elif tier_status in ["SMALL TIER", "TIER ALMOST GONE"]:
         reasons.append("Tier is nearly exhausted")
 
     if vorp >= 75:
