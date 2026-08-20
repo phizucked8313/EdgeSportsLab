@@ -12,6 +12,23 @@ USER_ROSTER_COLUMNS = [
     "source",
 ]
 
+DRAFT_NIGHT_COLUMNS = [
+    "draft_rank",
+    "player_name_clean",
+    "position",
+    "team",
+    "position_rank_label",
+    "tier",
+    "projected_points",
+    "vorp",
+    "edgescore",
+    "draft_score",
+    "pressure_score",
+    "brain_score",
+    "brain_recommendation",
+    "injury_risk_score",
+]
+
 
 def normalize_player_name(value):
     return str(value).strip().casefold()
@@ -61,6 +78,14 @@ def apply_player_filters(rankings, search_text="", position=None):
 
 def select_display_columns(rankings, preferred_columns):
     return [column for column in preferred_columns if column in rankings.columns]
+
+
+def build_available_player_display(rankings):
+    """Return only the decision columns needed on the draft-night board."""
+    columns = select_display_columns(rankings, DRAFT_NIGHT_COLUMNS)
+    if rankings.columns.tolist() == columns:
+        return rankings
+    return rankings.loc[:, columns].copy().reset_index(drop=True)
 
 
 def build_recent_history(state, limit=10):
