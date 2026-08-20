@@ -1,5 +1,7 @@
 import pandas as pd
 
+from fantasy_draft_model.models.league_profile import get_league
+
 
 def normalize_player_name(value):
     return str(value).strip().casefold()
@@ -62,3 +64,50 @@ def build_recent_history(state, limit=10):
         history = history.iloc[::-1]
 
     return history.head(limit).reset_index(drop=True)
+
+
+def build_live_draft_context(state):
+    """Return the user's next snake-draft turn and distance from the current pick."""
+    league = get_league(state["league_name"])
+    if league is None:
+        raise ValueError(f"Unknown league: {state['league_name']}")
+
+    current_pick = int(state["current_pick"])
+    team_count = int(state.get("team_count", league["team_count"]))
+    draft_rounds = int(state.get("draft_rounds", league["draft_rounds"]))
+    user_team = state.get("user_team", league["user_team"])
+    draft_order = league["draft_order"]
+
+    if user_team not in draft_order:
+        raise ValueError(f"User team not found in draft order: {user_team}")
+
+    user_slot = draft_order.index(user_team) + 1
+    total_picks = team_count * draft_rounds
+    next_user_pick = None
+
+    for round_number in range(1, draft_rounds + 1):
+        if round_number % 2 == 1:
+            pick_in_round = user_slot
+        else:
+            pick_in_round = team_count - user_slot + 1
+
+        pick_number = (round_number - 1) * team_count + pick_in_round
+        if pick_number >= current_pick:
+            next_user_pick = pick_number
+            break
+
+    if next_user_pick is None:
+        picks_until_user = None
+        user_on_clock = False
+    else:
+        picks_until_user = next_user_pick - current_pick
+        user_on_clock = picks_until_user == 0
+
+    return {
+        "current_pick": current_pick,
+        "next_user_pick": next_user_pick,
+        "picks_until_user": picks_until_user,
+        "user_on_clock": user_on_clock,
+        "user_draft_slot": user_slot,
+        "draft_complete": current_pick > total_picks,
+    }
