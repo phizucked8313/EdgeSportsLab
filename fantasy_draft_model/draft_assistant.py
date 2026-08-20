@@ -3,6 +3,31 @@ from fantasy_draft_model.engines.draft_brain_engine import add_draft_brain
 from fantasy_draft_model.engines.pressure_meter_engine import add_pressure_meter
 
 
+def build_draft_assistant_from_rankings(
+    rankings,
+    draft_context=None,
+):
+    """Apply live draft pressure and Draft Brain context to built rankings."""
+    if draft_context is None:
+        draft_context = {}
+
+    live_rankings = add_pressure_meter(
+        rankings.copy()
+    )
+    live_rankings = add_draft_brain(
+        live_rankings,
+        draft_context,
+    )
+    return (
+        live_rankings
+        .sort_values(
+            "brain_score",
+            ascending=False,
+        )
+        .reset_index(drop=True)
+    )
+
+
 def build_draft_assistant(
     league_key,
     draft_context=None,
@@ -23,33 +48,10 @@ def build_draft_assistant(
         league_key
     ).copy()
 
-    rankings = add_pressure_meter(
-        rankings
-    )
-
-    # Draft Brain needs context such as:
-    # picks_until_user
-    # roster state
-    # positional runs
-    # pressure
-    #
-    # We will expand this context as the live
-    # draft assistant becomes more interactive.
-    rankings = add_draft_brain(
+    return build_draft_assistant_from_rankings(
         rankings,
-        draft_context,
+        draft_context=draft_context,
     )
-
-    rankings = (
-        rankings
-        .sort_values(
-            "brain_score",
-            ascending=False,
-        )
-        .reset_index(drop=True)
-    )
-
-    return rankings
 
 
 def show_top_recommendations(
