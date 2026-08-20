@@ -77,17 +77,33 @@ def test_pressure_uses_numeric_tier_scarcity_directly():
 
 
 def test_brain_uses_numeric_tier_scarcity_and_numbered_tier_reason():
-    df = pd.DataFrame([_brain_row()])
+    high_scarcity = _brain_row() | {
+        "tier_scarcity_score": 80.0,
+        "tier_status": "DEPTH AVAILABLE",
+    }
+    low_scarcity = _brain_row() | {
+        "tier_scarcity_score": 20.0,
+        "tier_status": "ELITE SOLO TIER",
+    }
+    df = pd.DataFrame([high_scarcity, low_scarcity])
 
-    report = build_draft_brain_for_player(
+    high_report = build_draft_brain_for_player(
         df,
         df.iloc[0],
         {"picks_until_user": 3},
         wait_report={"survival_score": 50, "projection_drop": 0},
         position_run={"run_score": 0, "run_label": "NORMAL"},
     )
+    low_report = build_draft_brain_for_player(
+        df,
+        df.iloc[1],
+        {"picks_until_user": 3},
+        wait_report={"survival_score": 50, "projection_drop": 0},
+        position_run={"run_score": 0, "run_label": "NORMAL"},
+    )
 
-    assert "Last player remaining in RB Tier 2" in report["reasons"]
+    assert "Last player remaining in RB Tier 2" in high_report["reasons"]
+    assert high_report["brain_score"] - low_report["brain_score"] == 9.0
 
 
 def test_brain_handles_completed_draft_context():
