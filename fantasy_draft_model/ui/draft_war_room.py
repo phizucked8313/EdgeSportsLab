@@ -105,6 +105,67 @@ def build_static_available_board_html(rankings):
     )
 
 
+def build_player_ranking_explanation(rankings, player_name):
+    """Explain one player's live EdgeIQ rank without mutating the board."""
+    board = rankings.copy().reset_index(drop=True)
+    player_key = normalize_player_name(player_name)
+    matches = board[
+        board["player_name_clean"].map(normalize_player_name) == player_key
+    ]
+    if matches.empty:
+        raise ValueError(f"Player not found: {player_name}")
+
+    player_index = int(matches.index[0])
+    player = board.loc[player_index]
+
+    key_numbers = {
+        "projected_points": float(player.get("projected_points", 0.0)),
+        "vorp": float(player.get("vorp", 0.0)),
+        "edgescore": float(player.get("edgescore", 0.0)),
+        "projection_confidence": float(player.get("projection_confidence", 0.0)),
+        "injury_risk_score": float(player.get("injury_risk_score", 0.0)),
+    }
+
+    comparison = None
+    if player_index + 1 < len(board):
+        next_player = board.loc[player_index + 1]
+        comparison = {
+            "player_name": next_player.get("player_name_clean"),
+            "brain_score_delta": round(
+                float(player.get("brain_score", 0.0))
+                - float(next_player.get("brain_score", 0.0)),
+                2,
+            ),
+            "projected_points_delta": round(
+                float(player.get("projected_points", 0.0))
+                - float(next_player.get("projected_points", 0.0)),
+                2,
+            ),
+            "vorp_delta": round(
+                float(player.get("vorp", 0.0))
+                - float(next_player.get("vorp", 0.0)),
+                2,
+            ),
+            "edgescore_delta": round(
+                float(player.get("edgescore", 0.0))
+                - float(next_player.get("edgescore", 0.0)),
+                2,
+            ),
+        }
+
+    return {
+        "player_name": player.get("player_name_clean"),
+        "draft_rank": int(player.get("draft_rank", 0)),
+        "position_rank_label": player.get("position_rank_label"),
+        "brain_score": float(player.get("brain_score", 0.0)),
+        "recommendation": player.get("brain_recommendation", ""),
+        "drivers": list(player.get("brain_reasons", []) or []),
+        "warnings": list(player.get("brain_warnings", []) or []),
+        "key_numbers": key_numbers,
+        "comparison": comparison,
+    }
+
+
 def build_recent_history(state, limit=10):
     history = pd.DataFrame(state.get("manual_picks", []))
     if history.empty:
