@@ -14,7 +14,7 @@ The preview was started on `localhost:8517`; `GET http://localhost:8517/_stcore/
 
 ## Live Draft observations
 
-Browser inspection used the in-app browser against the running local preview.
+Initial browser inspection used the in-app browser against the running local preview. The corrected wide evidence capture described below used the available Chrome extension backend after that in-app session disconnected.
 
 | Viewport | Page overflow | Board / right rail | Scroll and sticky header | Header and contrast |
 | --- | --- | --- | --- | --- |
@@ -25,7 +25,7 @@ At both viewports, the board is the dominant live surface, the right rail remain
 
 ## Draft Complete observation (1920 x 1080)
 
-The state selector was switched in the running preview. The `Draft Complete` heading is prominent at `y = 275` (21.6 px); its heading-to-panel contrast measured 15.80:1. The complete card fills a conclusive `1750 x 749` hierarchy and includes `Draft summary`, `Roster recap`, and `Recent picks`; the roster and history tables end at y=719 and y=956 respectively, within the 1080 px viewport. There is no horizontal overflow (`1920 / 1920`).
+The state selector was switched in the running preview. The `Draft Complete` heading is prominent at `y = 275` (21.6 px); its heading-to-panel contrast measured 15.80:1. The complete card fills a conclusive hierarchy and includes `Draft summary`, `Roster recap`, and `Recent picks`; the roster and history tables end at y=719 and y=956 respectively. There is no horizontal overflow (`1920 / 1920`). The corrected Chrome capture measured the complete card at `(80, 239.19)` with a `1760 x 749.30` extent, right edge `1840`, and bottom edge `988.48`; both its right and bottom borders are inside the captured frame.
 
 ## Defect found and correction
 
@@ -42,3 +42,9 @@ The first live inspection exposed only seven player rows (`scrollHeight = client
 - `artifacts/draft-night-preview-1920x1080.png` — Draft Complete, 1920 x 1080. The separate wide Live Draft inspection is recorded above.
 - `..\\..\\.venv\\Scripts\\python.exe -m pytest tests\\test_draft_night_preview_components.py -q --basetemp=.pytest-tmp-task4-wide-green` — `14 passed in 0.25s`.
 - In-app browser console-error check — no errors.
+
+## Evidence correction: exact wide PNG
+
+The reviewer correctly found that the original wide artifact was `1683 x 1080`, not the required `1920 x 1080`, and that it cropped the complete card's right edge. It has been replaced with a real Chrome extension-browser capture.
+
+Chrome's viewport control was set to `1920 x 1249` so the full complete card was visible. The browser captured the actual page frame with `clip = (0, 0, 1920, 1080)`, producing an exact `1920 x 1080` PNG. Independent `System.Drawing.Image` inspection reports `WIDTH=1920 HEIGHT=1080`. Browser geometry confirms the complete card's right edge (`1840`) and bottom edge (`988.48`) are within that captured frame; visual inspection confirms both outer borders are present.
