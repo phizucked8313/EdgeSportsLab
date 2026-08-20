@@ -115,6 +115,27 @@ def test_validation_rejects_noncanonical_league_metadata():
         validate_war_room_state(state)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("status", ["active"]),
+        ("status", {"value": "active"}),
+        ("league_key", ["drunk_sundays"]),
+        ("league_key", {"value": "drunk_sundays"}),
+        ("league_name", ["Drunk Sundays"]),
+        ("league_name", {"value": "Drunk Sundays"}),
+    ],
+)
+def test_validation_aggregates_wrong_shaped_json_fields(field, value):
+    state = _canonical_state()
+    state[field] = value
+    if field == "league_name":
+        state["league_key"] = None
+
+    with pytest.raises(StateValidationError, match=field):
+        validate_war_room_state(state)
+
+
 def test_validation_rejects_duplicate_manual_pick_numbers():
     state = _canonical_state(current_pick=3)
     state["manual_picks"][1]["pick_number"] = 1

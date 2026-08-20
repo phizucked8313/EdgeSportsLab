@@ -62,7 +62,8 @@ def _resolve_state_league(state, issues):
 
     for field in ("league_key", "league_name"):
         identifier = state.get(field)
-        if not identifier:
+        if not isinstance(identifier, str) or not identifier.strip():
+            issues.append(f"{field} must be a non-empty string")
             continue
         try:
             return resolve_league(identifier)
@@ -141,7 +142,10 @@ def validate_war_room_state(state, *, keeper_reservations=None):
         upper = (canonical_total + 1) if canonical_total is not None else "the completion boundary"
         issues.append(f"current_pick must be an integer from 1 through {upper}")
 
-    if state["status"] not in {"active", "complete"}:
+    if not isinstance(state["status"], str) or state["status"] not in (
+        "active",
+        "complete",
+    ):
         issues.append("status must be 'active' or 'complete'")
     elif canonical_total is not None and _is_int(current_pick):
         expected_status = "complete" if current_pick == canonical_total + 1 else "active"
