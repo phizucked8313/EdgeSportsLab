@@ -88,6 +88,23 @@ def build_available_player_display(rankings):
     return rankings.loc[:, columns].copy().reset_index(drop=True)
 
 
+def build_static_available_board_html(rankings):
+    """Render the available-player board as static scrollable HTML with no row index."""
+    display = build_available_player_display(rankings)
+    table_html = display.to_html(
+        index=False,
+        escape=True,
+        border=0,
+        classes="edgeiq-board-table",
+    )
+    return (
+        '<div class="edgeiq-board-scroll" '
+        'style="max-height: 520px; overflow: auto;">'
+        f"{table_html}"
+        "</div>"
+    )
+
+
 def build_recent_history(state, limit=10):
     history = pd.DataFrame(state.get("manual_picks", []))
     if history.empty:
