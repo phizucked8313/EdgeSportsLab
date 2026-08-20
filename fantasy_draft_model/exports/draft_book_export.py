@@ -32,7 +32,7 @@ EXPORT_COLUMNS = OrderedDict(
 )
 
 
-def _pick_schedule(league):
+def _pick_schedule(league, keepers):
     order = league["draft_order"]
     user_team = league["user_team"]
     user_slot = order.index(user_team) + 1
@@ -41,11 +41,21 @@ def _pick_schedule(league):
         rounds=league["draft_rounds"],
         team_count=league["team_count"],
     )
+    user_keepers = {}
+    if keepers is not None and not keepers.empty:
+        owner_names = keepers["owner_team"].fillna("").astype(str).str.strip().str.casefold()
+        for keeper in keepers.loc[owner_names == user_team.casefold()].to_dict("records"):
+            user_keepers[int(keeper["keeper_round"])] = str(keeper["player_name"]).strip()
     return pd.DataFrame(
         {
             "Round": range(1, len(picks) + 1),
             "Overall Pick": picks,
-            "Marker": [f"PICK {pick} (R{round_number})" for round_number, pick in enumerate(picks, 1)],
+            "Marker": [
+                f"KEEPER: {user_keepers[round_number]}"
+                if round_number in user_keepers
+                else f"PICK {pick} (R{round_number})"
+                for round_number, pick in enumerate(picks, 1)
+            ],
         }
     )
 
@@ -89,7 +99,7 @@ def _format_table(rankings, keeper_annotations, pick_markers):
 
 def build_export_tables(rankings, keepers, league):
     """Annotate existing rankings and return overall/position draft-book tables."""
-    schedule = _pick_schedule(league)
+    schedule = _pick_schedule(league, keepers)
     pick_markers = dict(zip(schedule["Overall Pick"], schedule["Marker"]))
     board = _format_table(rankings, _keeper_annotations(keepers), pick_markers)
     tables = OrderedDict()

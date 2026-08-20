@@ -69,6 +69,40 @@ def test_export_tables_preserve_rankings_and_annotate_keepers_and_user_picks():
     assert tables["Top 300"].loc[2, "Current Injury"] == "Questionable - Knee"
 
 
+def test_user_keeper_rounds_replace_live_pick_markers():
+    keepers = pd.DataFrame(
+        [
+            {
+                "owner_team": "BLKWDW'S",
+                "player_name": "Ashton Jeanty",
+                "keeper_type": "rookie",
+                "keeper_round": 3,
+            },
+            {
+                "owner_team": "BLKWDW'S",
+                "player_name": "TreVeyon Henderson",
+                "keeper_type": "standard",
+                "keeper_round": 15,
+            },
+            {
+                "owner_team": "Other Team",
+                "player_name": "Someone Else",
+                "keeper_type": "standard",
+                "keeper_round": 1,
+            },
+        ]
+    )
+
+    tables = build_export_tables(_rankings(), keepers, get_league("Drunk Sundays"))
+
+    schedule = tables["BLKWDW Picks"].set_index("Round")
+    assert schedule.loc[1, "Marker"] == "PICK 9 (R1)"
+    assert schedule.loc[3, "Marker"] == "KEEPER: Ashton Jeanty"
+    assert schedule.loc[15, "Marker"] == "KEEPER: TreVeyon Henderson"
+    assert tables["Top 300"].loc[32, "BLKWDW Pick"] == "KEEPER: Ashton Jeanty"
+    assert tables["Top 300"].loc[176, "BLKWDW Pick"] == "KEEPER: TreVeyon Henderson"
+
+
 def test_csv_xlsx_and_pdf_exports_are_complete_and_printable(tmp_path):
     tables = build_export_tables(
         _rankings(),
