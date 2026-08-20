@@ -102,6 +102,7 @@ The tier engine should expose these fields:
 - `tier_drop`: projected-point drop from the previous player
 - `tier_vorp_drop`: VORP drop from the previous player
 - `tier_threshold`: threshold that applied when evaluating that player boundary
+- `tier_next_threshold`: position/tier-consistent effective threshold for leaving the current tier
 - `tier_next_projection_drop`: projected-point drop from the final player in the current tier to the first player in the next tier; zero when no next tier exists
 - `tier_next_vorp_drop`: VORP drop from the final player in the current tier to the first player in the next tier; zero when no next tier exists
 
@@ -166,13 +167,15 @@ Tier creation can be triggered by either projected-point separation or VORP sepa
 
 For the current tier:
 
-`projection_drop_pressure = min(100, 100 * tier_next_projection_drop / effective_next_threshold)`
+`projection_drop_pressure = clip(50 * tier_next_projection_drop / tier_next_threshold, 0, 100)`
 
-`vorp_drop_pressure = min(100, 100 * tier_next_vorp_drop / effective_next_threshold)`
+`vorp_drop_pressure = clip(50 * tier_next_vorp_drop / tier_next_threshold, 0, 100)`
 
 `drop_pressure = max(projection_drop_pressure, vorp_drop_pressure)`
 
 This prevents a tier created by a meaningful VORP gap from appearing unimportant merely because its projected-point gap was smaller.
+
+A gap equal to the effective next-tier threshold contributes 50 drop-pressure points. A gap at least twice the threshold contributes 100. Negative or non-finite gaps contribute zero. This keeps the signal magnitude-sensitive instead of saturating every qualifying tier boundary.
 
 ### Final tier scarcity
 

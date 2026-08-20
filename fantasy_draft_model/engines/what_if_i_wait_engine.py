@@ -9,6 +9,9 @@ a player now or risk waiting until the next pick.
 import pandas as pd
 
 
+HARD_TIER_SCARCITY_THRESHOLD = 80.0
+
+
 def estimate_survival_score(pressure_score, picks_until_next):
     """Estimate a heuristic chance of surviving until the user's next pick."""
     pressure_score = max(0, min(100, pressure_score))
@@ -61,11 +64,23 @@ def create_wait_recommendation(player_row, survival_score, value_drop):
         player_row.get("tier_remaining"),
         errors="coerce",
     )
+    tier_scarcity_score = pd.to_numeric(
+        player_row.get("tier_scarcity_score", 0.0),
+        errors="coerce",
+    )
+    if pd.isna(tier_scarcity_score):
+        tier_scarcity_score = 0.0
     projection_drop = value_drop["projection_drop"]
     vorp_drop = value_drop["vorp_drop"]
 
-    if pd.notna(tier) and tier_remaining == 1:
-        return "DO NOT WAIT", "Last player remaining in the current tier."
+    if (
+        pd.notna(tier)
+        and tier_remaining == 1
+        and tier_scarcity_score >= HARD_TIER_SCARCITY_THRESHOLD
+    ):
+        position = str(player_row.get("position", "")).strip().upper()
+        tier_label = str(int(tier)) if float(tier).is_integer() else str(tier)
+        return "DO NOT WAIT", f"Last player remaining in {position} Tier {tier_label}."
     if pressure >= 85 and survival_score <= 25:
         return "DO NOT WAIT", "High draft pressure and low chance of surviving."
     if vorp_drop >= 40:

@@ -165,7 +165,7 @@ git commit -m "feat: add progressive position tiers"
 
 **Interfaces:**
 - Consumes: tiered DataFrame from Task 1.
-- Produces: `add_tier_boundary_metadata(df)`, `add_live_tier_scarcity(df)`, and columns `tier_size`, `tier_next_projection_drop`, `tier_next_vorp_drop`, `tier_remaining`, `tier_scarcity_score`.
+- Produces: `add_tier_boundary_metadata(df)`, `add_live_tier_scarcity(df)`, and columns `tier_size`, `tier_next_threshold`, `tier_next_projection_drop`, `tier_next_vorp_drop`, `tier_remaining`, `tier_scarcity_score`.
 
 - [ ] **Step 1: Write failing tests for boundary metadata and scarcity**
 
@@ -178,40 +178,40 @@ from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
 def test_late_singleton_is_capped_by_tier_depth():
     df = pd.DataFrame([
         {"player_name_clean": "RB Tier1", "position": "RB", "tier": 1, "tier_size": 1,
-         "tier_threshold": 14.0, "tier_next_projection_drop": 14.0, "tier_next_vorp_drop": 10.0},
+         "tier_next_threshold": 14.0, "tier_next_projection_drop": 14.0, "tier_next_vorp_drop": 10.0},
         {"player_name_clean": "RB Tier5", "position": "RB", "tier": 5, "tier_size": 1,
-         "tier_threshold": 24.5, "tier_next_projection_drop": 24.5, "tier_next_vorp_drop": 20.0},
+         "tier_next_threshold": 24.5, "tier_next_projection_drop": 24.5, "tier_next_vorp_drop": 20.0},
     ])
     result = add_live_tier_scarcity(df)
     scores = dict(zip(result["player_name_clean"], result["tier_scarcity_score"]))
-    assert scores["RB Tier1"] == 100.0
-    assert scores["RB Tier5"] == 40.0
+    assert scores["RB Tier1"] == 80.0
+    assert scores["RB Tier5"] == 32.0
 
 
 def test_tier_remaining_uses_only_rows_still_on_available_board():
     df = pd.DataFrame([
         {"player_name_clean": "RB A", "position": "RB", "tier": 2, "tier_size": 3,
-         "tier_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0},
+         "tier_next_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0},
         {"player_name_clean": "RB B", "position": "RB", "tier": 2, "tier_size": 3,
-         "tier_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0},
+         "tier_next_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0},
     ])
     result = add_live_tier_scarcity(df.iloc[[0]].copy())
     row = result.iloc[0]
     assert row["tier_remaining"] == 1
     assert row["tier"] == 2
-    assert row["tier_scarcity_score"] == 85.0
+    assert row["tier_scarcity_score"] == 68.0
 
 
 def test_drop_pressure_uses_larger_of_projection_and_vorp_signal():
     df = pd.DataFrame([
         {"player_name_clean": "TE A", "position": "TE", "tier": 2, "tier_size": 2,
-         "tier_threshold": 15.0, "tier_next_projection_drop": 6.0, "tier_next_vorp_drop": 15.0},
+         "tier_next_threshold": 15.0, "tier_next_projection_drop": 6.0, "tier_next_vorp_drop": 15.0},
         {"player_name_clean": "TE B", "position": "TE", "tier": 2, "tier_size": 2,
-         "tier_threshold": 15.0, "tier_next_projection_drop": 6.0, "tier_next_vorp_drop": 15.0},
+         "tier_next_threshold": 15.0, "tier_next_projection_drop": 6.0, "tier_next_vorp_drop": 15.0},
     ])
     result = add_live_tier_scarcity(df)
     assert set(result["tier_remaining"]) == {2}
-    assert set(result["tier_scarcity_score"]) == {59.5}
+    assert set(result["tier_scarcity_score"]) == {42.5}
 ```
 
 - [ ] **Step 2: Run and verify RED**
@@ -238,13 +238,13 @@ For each row in `add_live_tier_scarcity`:
 
 ```python
 remaining_pressure = min(100.0, 100.0 / max(1, tier_remaining))
-projection_drop_pressure = min(100.0, 100.0 * tier_next_projection_drop / max(1.0, tier_threshold))
-vorp_drop_pressure = min(100.0, 100.0 * tier_next_vorp_drop / max(1.0, tier_threshold))
+projection_drop_pressure = clip(50.0 * tier_next_projection_drop / tier_next_threshold, 0.0, 100.0)
+vorp_drop_pressure = clip(50.0 * tier_next_vorp_drop / tier_next_threshold, 0.0, 100.0)
 drop_pressure = max(projection_drop_pressure, vorp_drop_pressure)
-tier_scarcity_score = depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
+tier_scarcity_score = clip(depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure), 0.0, 100.0)
 ```
 
-Round to two decimals. `tier_remaining` must be recomputed from the rows currently present, while `tier_size` remains base-tier size.
+Store `tier_next_threshold` from the current position/tier rather than reusing the boundary row's `tier_threshold`. A gap equal to that threshold maps to 50 drop-pressure points and a gap at least twice the threshold maps to 100. Negative and non-finite pressures map to zero. Round to two decimals. `tier_remaining` must be recomputed from the rows currently present, while `tier_size` remains base-tier size.
 
 - [ ] **Step 4: Run and verify GREEN**
 
@@ -468,11 +468,11 @@ from fantasy_draft_model.ui.draft_war_room import filter_available_players
 def test_unavailable_players_are_removed_before_live_tier_scarcity_and_brain():
     rankings = pd.DataFrame([
         {"player_name_clean": "RB A", "position": "RB", "tier": 2, "tier_size": 2,
-         "tier_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0,
+         "tier_threshold": 17.5, "tier_next_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0,
          "draft_rank": 5, "vorp": 100.0, "edgescore": 80.0, "projection_score": 80.0,
          "projection_confidence": 90.0, "injury_risk_score": 10.0},
         {"player_name_clean": "RB B", "position": "RB", "tier": 2, "tier_size": 2,
-         "tier_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0,
+         "tier_threshold": 17.5, "tier_next_threshold": 17.5, "tier_next_projection_drop": 17.5, "tier_next_vorp_drop": 0.0,
          "draft_rank": 6, "vorp": 95.0, "edgescore": 79.0, "projection_score": 79.0,
          "projection_confidence": 90.0, "injury_risk_score": 10.0},
     ])
@@ -749,5 +749,5 @@ Do not create an empty commit if no files changed.
 
 - Spec coverage: progressive thresholds, per-position numbering, either projection/VORP boundary trigger, stable base tiers, live tier remaining, numeric scarcity, Rankings/Pressure/Brain reuse, availability-before-scoring, numeric UI/explanation, migration, draft-completion safety, regression/performance coverage are all assigned to tasks.
 - Placeholder scan: no TBD/TODO/"implement later" instructions remain.
-- Type/name consistency: `get_tier_threshold`, `add_live_tier_scarcity`, `tier_remaining`, `tier_scarcity_score`, `recalculate_live_draft_score`, `format_position_tier`, and the next-drop column names are consistent across tasks.
+- Type/name consistency: `get_tier_threshold`, `add_live_tier_scarcity`, `tier_next_threshold`, `tier_remaining`, `tier_scarcity_score`, `recalculate_live_draft_score`, `format_position_tier`, and the next-drop column names are consistent across tasks.
 - Scope: one coherent subsystem redesign; no unrelated projection, VORP, EdgeScore, keeper, or league-scoring work is included.

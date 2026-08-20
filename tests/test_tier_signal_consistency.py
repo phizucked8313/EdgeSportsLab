@@ -102,27 +102,67 @@ def test_draft_brain_scores_higher_numeric_tier_scarcity_above_lower_scarcity():
     assert "tier_status" not in solo_report
 
 
-def test_football_intelligence_uses_numeric_tier_remaining():
+def test_football_intelligence_gates_tier_urgency_on_numeric_scarcity():
     last_player_pros, _ = football_intelligence.draft_intelligence(
-        pd.Series(_base_row(tier=2, tier_remaining=1))
+        pd.Series(_base_row(
+            position="RB",
+            tier=1,
+            tier_remaining=1,
+            tier_scarcity_score=100.0,
+        ))
     )
     nearly_gone_pros, _ = football_intelligence.draft_intelligence(
-        pd.Series(_base_row(tier=2, tier_remaining=2))
+        pd.Series(_base_row(
+            position="TE",
+            tier=1,
+            tier_remaining=2,
+            tier_scarcity_score=70.0,
+        ))
+    )
+    late_singleton_pros, _ = football_intelligence.draft_intelligence(
+        pd.Series(_base_row(
+            position="RB",
+            tier=5,
+            tier_remaining=1,
+            tier_scarcity_score=40.0,
+        ))
     )
 
-    assert "Last player remaining in current tier" in last_player_pros
-    assert "Position tier is nearly exhausted" in nearly_gone_pros
+    assert "Last player remaining in RB Tier 1" in last_player_pros
+    assert "Two players remaining in TE Tier 1" in nearly_gone_pros
+    assert not any("remaining" in message for message in late_singleton_pros)
 
 
-def test_wait_recommendation_uses_numeric_tier_remaining_for_last_player():
+def test_wait_recommendation_keeps_early_high_scarcity_singleton_urgent():
     recommendation, reason = what_if_i_wait_engine.create_wait_recommendation(
-        pd.Series(_base_row(tier=2, tier_remaining=1, pressure_score=0.0)),
+        pd.Series(_base_row(
+            tier=1,
+            tier_remaining=1,
+            tier_scarcity_score=100.0,
+            pressure_score=0.0,
+        )),
         survival_score=100.0,
         value_drop={"projection_drop": 0.0, "vorp_drop": 0.0},
     )
 
     assert recommendation == "DO NOT WAIT"
-    assert reason == "Last player remaining in the current tier."
+    assert reason == "Last player remaining in WR Tier 1."
+
+
+def test_wait_recommendation_does_not_overstate_late_low_scarcity_singleton():
+    recommendation, reason = what_if_i_wait_engine.create_wait_recommendation(
+        pd.Series(_base_row(
+            tier=6,
+            tier_remaining=1,
+            tier_scarcity_score=40.0,
+            pressure_score=0.0,
+        )),
+        survival_score=100.0,
+        value_drop={"projection_drop": 0.0, "vorp_drop": 0.0},
+    )
+
+    assert recommendation == "SAFE TO WAIT"
+    assert reason == "Comparable options may still be available later."
 
 
 def test_draft_brain_uses_normalized_vorp_score_not_raw_vorp_clamp():

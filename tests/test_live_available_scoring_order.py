@@ -125,6 +125,33 @@ def test_build_live_view_filters_once_before_scoring_and_preserves_baseline_rank
     assert snapshot["available"]["brain_score"].is_monotonic_decreasing
 
 
+def test_build_live_view_removes_keeper_before_scoring_and_enriches_roster_metadata(
+    monkeypatch,
+):
+    rankings = _mixed_rankings().iloc[:2].copy()
+    state = _state()
+    state["keeper_reservations"] = [{
+        "pick_number": 1,
+        "round": 1,
+        "fantasy_team": "BLKWDW'S",
+        "player_name": "RB A",
+        "position": None,
+        "nfl_team": None,
+    }]
+    monkeypatch.setattr(streamlit_app, "load_or_initialize_war_room_state", lambda: state)
+
+    snapshot = streamlit_app.build_live_view(base_rankings=rankings)
+    available = snapshot["available"].set_index("player_name_clean")
+    keeper = snapshot["roster"].iloc[0]
+
+    assert list(available.index) == ["RB B"]
+    assert available.loc["RB B", "tier_remaining"] == 1
+    assert snapshot["available"]["brain_score"].is_monotonic_decreasing
+    assert keeper["player_name"] == "RB A"
+    assert keeper["position"] == "RB"
+    assert keeper["nfl_team"] == "TEST"
+
+
 def test_no_cache_and_no_unavailable_players_still_uses_canonical_filter(
     monkeypatch,
 ):

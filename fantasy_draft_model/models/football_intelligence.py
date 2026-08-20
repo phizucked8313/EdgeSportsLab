@@ -10,6 +10,10 @@ high-level intelligence scores.
 import pandas as pd
 
 
+HARD_TIER_SCARCITY_THRESHOLD = 80.0
+ELEVATED_TIER_SCARCITY_THRESHOLD = 60.0
+
+
 # ============================================================
 # HELPERS
 # ============================================================
@@ -404,6 +408,18 @@ def draft_intelligence(row):
         0
     )
 
+    tier_scarcity = safe_value(
+        row,
+        "tier_scarcity_score",
+        0
+    )
+
+    position = str(safe_value(
+        row,
+        "position",
+        ""
+    )).strip().upper()
+
     vorp = safe_value(
         row,
         "vorp"
@@ -438,17 +454,25 @@ def draft_intelligence(row):
         )
 
 
-    if tier > 0 and tier_remaining == 1:
+    if (
+        tier > 0
+        and tier_remaining == 1
+        and tier_scarcity >= HARD_TIER_SCARCITY_THRESHOLD
+    ):
 
         pros.append(
-            "Last player remaining in current tier"
+            f"Last player remaining in {position} Tier {int(tier)}"
         )
 
 
-    if tier > 0 and tier_remaining == 2:
+    if (
+        tier > 0
+        and tier_remaining == 2
+        and tier_scarcity >= ELEVATED_TIER_SCARCITY_THRESHOLD
+    ):
 
         pros.append(
-            "Position tier is nearly exhausted"
+            f"Two players remaining in {position} Tier {int(tier)}"
         )
 
 

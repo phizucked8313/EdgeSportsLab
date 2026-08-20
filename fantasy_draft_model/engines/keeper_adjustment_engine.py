@@ -11,12 +11,11 @@ from fantasy_draft_model.keepers import (
     get_keeper_player_names,
 )
 
-from fantasy_draft_model.engines.vorp_engine import (
-    calculate_vorp,
-)
-
 from fantasy_draft_model.engines.tier_engine import (
-    calculate_tiers,
+    add_live_tier_scarcity,
+)
+from fantasy_draft_model.rankings import (
+    recalculate_live_draft_score,
 )
 
 
@@ -58,11 +57,9 @@ def recalculate_after_keepers(
     league_name: str,
 ) -> pd.DataFrame:
     """
-    Remove keepers and recalculate:
-    - VORP
-    - position ranks
-    - tiers
-    - tier scarcity
+    Remove keepers while preserving base ranking and tier identity.
+
+    Only availability-dependent tier scarcity and Draft Score are refreshed.
     """
 
     df = remove_keepers(
@@ -70,11 +67,11 @@ def recalculate_after_keepers(
         league_name
     )
 
-    df = calculate_vorp(
+    df = add_live_tier_scarcity(
         df
     )
 
-    df = calculate_tiers(
+    df = recalculate_live_draft_score(
         df
     )
 

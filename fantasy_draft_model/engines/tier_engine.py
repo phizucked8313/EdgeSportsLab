@@ -57,7 +57,11 @@ def assign_position_tiers(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    df["tier"] = 0
+    df["tier"] = pd.Series(
+        pd.NA,
+        index=df.index,
+        dtype="Int64",
+    )
     df["tier_drop"] = 0.0
     df["tier_vorp_drop"] = 0.0
     df["tier_threshold"] = 0.0
@@ -233,10 +237,7 @@ def assign_position_tiers(df: pd.DataFrame) -> pd.DataFrame:
             position_df["tier_threshold"]
         )
 
-    df["tier"] = (
-        df["tier"]
-        .astype(int)
-    )
+    df["tier"] = df["tier"].astype("Int64")
 
     return df
 
@@ -284,19 +285,25 @@ def add_tier_size(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_tier_boundary_metadata(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add the projection and VORP drop to the next tier for each player.
+    Add the effective threshold and drop to the next tier for each player.
     """
 
     df = df.copy()
 
     df["tier_next_projection_drop"] = 0.0
     df["tier_next_vorp_drop"] = 0.0
+    df["tier_next_threshold"] = 0.0
 
     for position, position_df in df.groupby("position"):
         position_df = position_df.sort_values(
             by=["projected_points", "vorp"],
             ascending=False,
         )
+        position_df = position_df.loc[
+            pd.to_numeric(position_df["tier"], errors="coerce").notna()
+        ]
+        if position_df.empty:
+            continue
 
         next_projection_drops = (
             position_df.groupby("tier", sort=True)["tier_drop"]
@@ -311,12 +318,17 @@ def add_tier_boundary_metadata(df: pd.DataFrame) -> pd.DataFrame:
             .fillna(0.0)
         )
 
-        position_mask = df["position"] == position
-        df.loc[position_mask, "tier_next_projection_drop"] = (
-            df.loc[position_mask, "tier"].map(next_projection_drops)
+        position_indices = position_df.index
+        df.loc[position_indices, "tier_next_projection_drop"] = (
+            df.loc[position_indices, "tier"].map(next_projection_drops)
         )
-        df.loc[position_mask, "tier_next_vorp_drop"] = (
-            df.loc[position_mask, "tier"].map(next_vorp_drops)
+        df.loc[position_indices, "tier_next_vorp_drop"] = (
+            df.loc[position_indices, "tier"].map(next_vorp_drops)
+        )
+        df.loc[position_indices, "tier_next_threshold"] = (
+            df.loc[position_indices, "tier"].map(
+                lambda tier: get_tier_threshold(position, tier)
+            )
         )
 
     return df
@@ -347,26 +359,27 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[tierless_mask, "tier_remaining"] = 0
 
     tier_remaining = df["tier_remaining"]
-    tier_threshold = pd.to_numeric(
-        df.get("tier_threshold", pd.Series(0.0, index=df.index)),
+    tier_next_threshold = pd.to_numeric(
+        df.get("tier_next_threshold", pd.Series(0.0, index=df.index)),
         errors="coerce",
-    ).fillna(0.0)
+    ).replace([float("inf"), float("-inf")], 0.0).fillna(0.0)
     projection_drop = pd.to_numeric(
         df.get("tier_next_projection_drop", pd.Series(0.0, index=df.index)),
         errors="coerce",
-    ).fillna(0.0)
+    ).replace([float("inf"), float("-inf")], 0.0).fillna(0.0).clip(lower=0.0)
     vorp_drop = pd.to_numeric(
         df.get("tier_next_vorp_drop", pd.Series(0.0, index=df.index)),
         errors="coerce",
-    ).fillna(0.0)
+    ).replace([float("inf"), float("-inf")], 0.0).fillna(0.0).clip(lower=0.0)
 
-    remaining_pressure = (100.0 / tier_remaining.clip(lower=1)).clip(upper=100.0)
+    remaining_pressure = (100.0 / tier_remaining.clip(lower=1)).clip(0.0, 100.0)
+    safe_next_threshold = tier_next_threshold.where(tier_next_threshold > 0.0)
     projection_drop_pressure = (
-        100.0 * projection_drop / tier_threshold.clip(lower=1.0)
-    ).clip(upper=100.0)
+        50.0 * projection_drop / safe_next_threshold
+    ).fillna(0.0).clip(0.0, 100.0)
     vorp_drop_pressure = (
-        100.0 * vorp_drop / tier_threshold.clip(lower=1.0)
-    ).clip(upper=100.0)
+        50.0 * vorp_drop / safe_next_threshold
+    ).fillna(0.0).clip(0.0, 100.0)
     drop_pressure = pd.concat(
         [projection_drop_pressure, vorp_drop_pressure],
         axis=1,
@@ -377,7 +390,8 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
 
     df["tier_scarcity_score"] = (
         depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
-    ).round(2)
+    ).clip(lower=0.0, upper=100.0).round(2)
+    df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
 
     return df
 
@@ -389,12 +403,11 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Run complete EdgeIQ tier logic.
+    Build stable base tiers from the full rankings board.
 
-    Safe to rerun after:
-    - keepers are removed
-    - players are drafted
-    - rankings change
+    Live keeper/drafted availability must preserve these tier identities and
+    be applied with ``add_live_tier_scarcity`` after unavailable players are
+    removed.
     """
 
     df = df.copy()
@@ -411,6 +424,7 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
         "tier_size",
         "tier_next_projection_drop",
         "tier_next_vorp_drop",
+        "tier_next_threshold",
         "tier_remaining",
         "tier_scarcity_score",
         "tier_status",

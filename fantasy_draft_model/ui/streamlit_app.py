@@ -14,6 +14,7 @@ from fantasy_draft_model.ui.draft_war_room import (
     build_player_ranking_explanation,
     build_static_available_board_html,
     build_war_room_snapshot,
+    enrich_user_roster_metadata,
     filter_available_players,
 )
 
@@ -54,12 +55,18 @@ def build_live_view(search_text="", position=None, base_rankings=None):
     )
     board.attrs[AVAILABLE_PLAYERS_ONLY_ATTR] = True
 
-    return build_war_room_snapshot(
+    snapshot = build_war_room_snapshot(
         board,
         state,
         search_text=search_text,
         position=position,
     )
+    if "roster" in snapshot:
+        snapshot["roster"] = enrich_user_roster_metadata(
+            snapshot["roster"],
+            base_rankings,
+        )
+    return snapshot
 
 
 def record_selected_player(available_players, player_name):
