@@ -157,3 +157,21 @@ def build_user_roster(state):
         )
 
     return pd.DataFrame(roster_rows, columns=USER_ROSTER_COLUMNS)
+
+
+def build_war_room_snapshot(rankings, state, search_text="", position=None, history_limit=10):
+    """Compose read-only data for the War Room UI without mutating rankings."""
+    available = filter_available_players(rankings, state)
+    filtered_available = apply_player_filters(
+        available,
+        search_text=search_text,
+        position=position,
+    )
+
+    return {
+        "context": build_live_draft_context(state),
+        "available": available,
+        "filtered_available": filtered_available,
+        "roster": build_user_roster(state),
+        "recent_history": build_recent_history(state, limit=history_limit),
+    }
