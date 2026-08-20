@@ -1,5 +1,6 @@
 import pandas as pd
 
+from fantasy_draft_model.draft_assistant import show_top_recommendations
 from fantasy_draft_model.ui import streamlit_app
 from fantasy_draft_model.ui.draft_war_room import (
     build_available_player_display,
@@ -41,6 +42,27 @@ def test_available_board_replaces_old_status_with_numeric_tier_label():
     assert display.iloc[0]["tier_remaining"] == 1
     assert display.iloc[0]["tier_scarcity_score"] == 85.0
     assert "tier_status" not in display.columns
+
+
+def test_draft_assistant_diagnostic_displays_numeric_tier_signals(capsys):
+    board = pd.DataFrame([{
+        "player_name_clean": "RB A",
+        "position": "RB",
+        "tier": 2,
+        "tier_remaining": 1,
+        "tier_scarcity_score": 85.0,
+        "tier_next_projection_drop": 17.5,
+        "tier_next_vorp_drop": 12.0,
+        "brain_score": 84.0,
+    }])
+
+    show_top_recommendations(board, limit=1)
+
+    output = capsys.readouterr().out
+    assert "tier_remaining" in output
+    assert "tier_scarcity_score" in output
+    assert "tier_next_projection_drop" in output
+    assert "tier_next_vorp_drop" in output
 
 
 def test_explanation_uses_same_numeric_tier_fields_as_scoring():

@@ -56,11 +56,15 @@ def calculate_value_drop(player_row, fallback_df):
 def create_wait_recommendation(player_row, survival_score, value_drop):
     """Create EdgeIQ's draft recommendation."""
     pressure = float(player_row.get("pressure_score", 0))
-    tier_status = player_row.get("tier_status", "")
+    tier = pd.to_numeric(player_row.get("tier"), errors="coerce")
+    tier_remaining = pd.to_numeric(
+        player_row.get("tier_remaining"),
+        errors="coerce",
+    )
     projection_drop = value_drop["projection_drop"]
     vorp_drop = value_drop["vorp_drop"]
 
-    if tier_status == "LAST PLAYER IN TIER":
+    if pd.notna(tier) and tier_remaining == 1:
         return "DO NOT WAIT", "Last player remaining in the current tier."
     if pressure >= 85 and survival_score <= 25:
         return "DO NOT WAIT", "High draft pressure and low chance of surviving."

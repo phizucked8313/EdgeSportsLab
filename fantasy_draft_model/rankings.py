@@ -236,7 +236,10 @@ def main():
         "ceiling_projection",
         "projection_confidence",
         "injury_risk_score",
-        "tier_status",
+        "tier_remaining",
+        "tier_scarcity_score",
+        "tier_next_projection_drop",
+        "tier_next_vorp_drop",
         "draft_value",
     ]
 

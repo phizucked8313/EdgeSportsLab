@@ -16,9 +16,8 @@ def _board():
                 "vorp": 120.0,
                 "vorp_score": 75.0,
                 "vorp_pressure": 80.0,
-                "tier_status": "SMALL TIER",
                 "tier_scarcity_score": 80.0,
-                "tier_pressure": 85.0,
+                "tier_pressure": 80.0,
                 "draft_score": 82.0,
                 "pressure_score": 83.0,
                 "brain_score": 84.0,
@@ -34,7 +33,6 @@ def _board():
                 "vorp": 90.0,
                 "vorp_score": 56.25,
                 "vorp_pressure": 60.0,
-                "tier_status": "LIMITED TIER",
                 "tier_scarcity_score": 60.0,
                 "tier_pressure": 60.0,
                 "draft_score": 72.0,
@@ -52,9 +50,8 @@ def _board():
                 "vorp": 0.0,
                 "vorp_score": 0.0,
                 "vorp_pressure": 0.0,
-                "tier_status": "DEPTH AVAILABLE",
                 "tier_scarcity_score": 35.0,
-                "tier_pressure": 30.0,
+                "tier_pressure": 35.0,
                 "draft_score": 45.0,
                 "pressure_score": 30.0,
                 "brain_score": 44.0,
@@ -70,7 +67,6 @@ def _board():
                 "vorp": 150.0,
                 "vorp_score": 93.75,
                 "vorp_pressure": 100.0,
-                "tier_status": "ELITE SOLO TIER",
                 "tier_scarcity_score": 100.0,
                 "tier_pressure": 100.0,
                 "draft_score": 84.0,
@@ -88,9 +84,8 @@ def _board():
                 "vorp": 0.0,
                 "vorp_score": 0.0,
                 "vorp_pressure": 0.0,
-                "tier_status": "DEPTH AVAILABLE",
                 "tier_scarcity_score": 35.0,
-                "tier_pressure": 30.0,
+                "tier_pressure": 35.0,
                 "draft_score": 42.0,
                 "pressure_score": 25.0,
                 "brain_score": 40.0,
@@ -117,8 +112,8 @@ def test_position_value_audit_exposes_replacement_demand_and_multipath_value():
 
     top = audit.iloc[0]
     assert top["brain_vorp_total"] == 15.95
-    assert top["brain_scarcity_total"] == 19.45
-    assert top["brain_vorp_and_scarcity_total"] == 35.4
+    assert top["brain_scarcity_total"] == 18.4
+    assert top["brain_vorp_and_scarcity_total"] == 34.35
 
 
 def test_rb_te_comparison_places_both_positions_side_by_side_with_demand_context():

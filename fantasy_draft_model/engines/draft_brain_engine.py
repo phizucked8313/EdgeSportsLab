@@ -44,7 +44,6 @@ def build_draft_brain_for_player(
     vorp = float(player_row.get("vorp", 0))
     confidence = float(player_row.get("projection_confidence", 0))
     injury_risk = float(player_row.get("injury_risk_score", 0))
-    tier_status = player_row.get("tier_status", "")
     position = player_row.get("position", "")
     player_name = player_row.get("player_name_clean", "")
 
@@ -145,7 +144,6 @@ def build_draft_brain_for_player(
         "pressure_score": pressure,
         "survival_score": survival_score,
         "run_label": run_label,
-        "tier_status": tier_status,
         "reasons": reasons,
         "warnings": warnings,
     }

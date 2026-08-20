@@ -314,8 +314,11 @@ def display_draft_board(limit=20):
         )
 
         print(
-            f"Tier Status: "
-            f"{row['tier_status']}"
+            f"Tier: {row['position']} Tier {int(row['tier'])} | "
+            f"{int(row['tier_remaining'])} remaining | "
+            f"Scarcity {row['tier_scarcity_score']:.1f}/100 | "
+            f"Next projection drop {row['tier_next_projection_drop']:.1f} | "
+            f"Next VORP drop {row['tier_next_vorp_drop']:.1f}"
         )
 
         print(

@@ -1,7 +1,12 @@
 import pandas as pd
 
 from fantasy_draft_model import rankings
-from fantasy_draft_model.engines import draft_brain_engine, pressure_meter_engine
+from fantasy_draft_model.engines import (
+    draft_brain_engine,
+    pressure_meter_engine,
+    what_if_i_wait_engine,
+)
+from fantasy_draft_model.models import football_intelligence
 
 
 def _base_row(**overrides):
@@ -10,7 +15,10 @@ def _base_row(**overrides):
         "position": "WR",
         "draft_rank": 1,
         "tier": 1,
-        "tier_status": "DEPTH AVAILABLE",
+        "tier_remaining": 1,
+        "tier_scarcity_score": 60.0,
+        "tier_next_projection_drop": 14.0,
+        "tier_next_vorp_drop": 14.0,
         "projected_points": 300.0,
         "replacement_points": 200.0,
         "vorp": 120.0,
@@ -26,13 +34,13 @@ def _base_row(**overrides):
     return row
 
 
-def test_rankings_score_current_tier_engine_statuses_in_scarcity_order():
+def test_rankings_preserve_numeric_tier_scarcity_order():
     df = pd.DataFrame(
         [
-            _base_row(player_name_clean="Solo", tier_status="ELITE SOLO TIER"),
-            _base_row(player_name_clean="Small", tier_status="SMALL TIER"),
-            _base_row(player_name_clean="Limited", tier_status="LIMITED TIER"),
-            _base_row(player_name_clean="Depth", tier_status="DEPTH AVAILABLE"),
+            _base_row(player_name_clean="Solo", tier_scarcity_score=100.0),
+            _base_row(player_name_clean="Small", tier_scarcity_score=80.0),
+            _base_row(player_name_clean="Limited", tier_scarcity_score=60.0),
+            _base_row(player_name_clean="Depth", tier_scarcity_score=35.0),
         ]
     )
 
@@ -42,29 +50,34 @@ def test_rankings_score_current_tier_engine_statuses_in_scarcity_order():
     assert result.loc["Small", "tier_scarcity_score"] == 80
     assert result.loc["Limited", "tier_scarcity_score"] == 60
     assert result.loc["Depth", "tier_scarcity_score"] == 35
+    assert result["draft_score"].tolist() == sorted(
+        result["draft_score"],
+        reverse=True,
+    )
+    assert result.loc["Solo", "draft_score"] - result.loc["Depth", "draft_score"] == 6.5
 
 
-def test_pressure_meter_scores_current_tier_engine_statuses_in_scarcity_order():
+def test_pressure_meter_preserves_numeric_tier_scarcity_order():
     df = pd.DataFrame(
         [
-            _base_row(player_name_clean="Solo", draft_rank=1, tier_status="ELITE SOLO TIER"),
-            _base_row(player_name_clean="Small", draft_rank=2, tier_status="SMALL TIER"),
-            _base_row(player_name_clean="Limited", draft_rank=3, tier_status="LIMITED TIER"),
-            _base_row(player_name_clean="Depth", draft_rank=4, tier_status="DEPTH AVAILABLE"),
+            _base_row(player_name_clean="Solo", draft_rank=1, tier_scarcity_score=100.0),
+            _base_row(player_name_clean="Small", draft_rank=2, tier_scarcity_score=80.0),
+            _base_row(player_name_clean="Limited", draft_rank=3, tier_scarcity_score=60.0),
+            _base_row(player_name_clean="Depth", draft_rank=4, tier_scarcity_score=35.0),
         ]
     )
 
     result = pressure_meter_engine.calculate_pressure_score(df).set_index("player_name_clean")
 
     assert result.loc["Solo", "tier_pressure"] == 100
-    assert result.loc["Small", "tier_pressure"] == 85
+    assert result.loc["Small", "tier_pressure"] == 80
     assert result.loc["Limited", "tier_pressure"] == 60
-    assert result.loc["Depth", "tier_pressure"] == 30
+    assert result.loc["Depth", "tier_pressure"] == 35
 
 
-def test_draft_brain_treats_elite_solo_tier_as_more_scarce_than_limited_tier():
-    solo = pd.Series(_base_row(player_name_clean="Solo", tier_status="ELITE SOLO TIER"))
-    limited = pd.Series(_base_row(player_name_clean="Limited", tier_status="LIMITED TIER"))
+def test_draft_brain_scores_higher_numeric_tier_scarcity_above_lower_scarcity():
+    solo = pd.Series(_base_row(player_name_clean="Solo", tier_scarcity_score=100.0))
+    limited = pd.Series(_base_row(player_name_clean="Limited", tier_scarcity_score=60.0))
     board = pd.DataFrame([solo, limited])
     wait_report = {"survival_score": 50.0, "projection_drop": 0.0}
     position_run = {"run_score": 0.0, "run_label": "NORMAL"}
@@ -85,7 +98,31 @@ def test_draft_brain_treats_elite_solo_tier_as_more_scarce_than_limited_tier():
         position_run=position_run,
     )
 
-    assert solo_report["brain_score"] > limited_report["brain_score"]
+    assert solo_report["brain_score"] - limited_report["brain_score"] == 6.0
+    assert "tier_status" not in solo_report
+
+
+def test_football_intelligence_uses_numeric_tier_remaining():
+    last_player_pros, _ = football_intelligence.draft_intelligence(
+        pd.Series(_base_row(tier=2, tier_remaining=1))
+    )
+    nearly_gone_pros, _ = football_intelligence.draft_intelligence(
+        pd.Series(_base_row(tier=2, tier_remaining=2))
+    )
+
+    assert "Last player remaining in current tier" in last_player_pros
+    assert "Position tier is nearly exhausted" in nearly_gone_pros
+
+
+def test_wait_recommendation_uses_numeric_tier_remaining_for_last_player():
+    recommendation, reason = what_if_i_wait_engine.create_wait_recommendation(
+        pd.Series(_base_row(tier=2, tier_remaining=1, pressure_score=0.0)),
+        survival_score=100.0,
+        value_drop={"projection_drop": 0.0, "vorp_drop": 0.0},
+    )
+
+    assert recommendation == "DO NOT WAIT"
+    assert reason == "Last player remaining in the current tier."
 
 
 def test_draft_brain_uses_normalized_vorp_score_not_raw_vorp_clamp():
@@ -94,7 +131,7 @@ def test_draft_brain_uses_normalized_vorp_score_not_raw_vorp_clamp():
             player_name_clean="High VORP",
             vorp=180.0,
             vorp_score=80.0,
-            tier_status="DEPTH AVAILABLE",
+            tier_scarcity_score=35.0,
         )
     )
     low = pd.Series(
@@ -102,7 +139,7 @@ def test_draft_brain_uses_normalized_vorp_score_not_raw_vorp_clamp():
             player_name_clean="Low VORP",
             vorp=120.0,
             vorp_score=60.0,
-            tier_status="DEPTH AVAILABLE",
+            tier_scarcity_score=35.0,
         )
     )
     board = pd.DataFrame([high, low])

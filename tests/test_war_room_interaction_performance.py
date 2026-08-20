@@ -17,7 +17,6 @@ def _brain_board():
                 "vorp": 45.0,
                 "projection_confidence": 90.0,
                 "injury_risk_score": 20.0,
-                "tier_status": "DEPTH AVAILABLE",
                 "projected_points": 300.0,
             },
             {
@@ -30,7 +29,6 @@ def _brain_board():
                 "vorp": 35.0,
                 "projection_confidence": 88.0,
                 "injury_risk_score": 25.0,
-                "tier_status": "DEPTH AVAILABLE",
                 "projected_points": 280.0,
             },
         ]

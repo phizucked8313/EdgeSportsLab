@@ -398,10 +398,10 @@ def draft_intelligence(row):
         "tier"
     )
 
-    tier_status = safe_value(
+    tier_remaining = safe_value(
         row,
-        "tier_status",
-        ""
+        "tier_remaining",
+        0
     )
 
     vorp = safe_value(
@@ -438,14 +438,14 @@ def draft_intelligence(row):
         )
 
 
-    if tier_status == "LAST PLAYER IN TIER":
+    if tier > 0 and tier_remaining == 1:
 
         pros.append(
             "Last player remaining in current tier"
         )
 
 
-    if tier_status == "TIER ALMOST GONE":
+    if tier > 0 and tier_remaining == 2:
 
         pros.append(
             "Position tier is nearly exhausted"

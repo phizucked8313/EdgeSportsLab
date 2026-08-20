@@ -44,6 +44,7 @@ def test_calculate_tiers_includes_boundary_metadata_for_each_tier():
     assert result.loc["RB B", "tier_next_vorp_drop"] == 30.0
     assert result.loc["RB C", "tier_next_projection_drop"] == 0.0
     assert result.loc["RB C", "tier_next_vorp_drop"] == 0.0
+    assert "tier_status" not in result.columns
 
 
 def test_late_singleton_is_capped_by_tier_depth():

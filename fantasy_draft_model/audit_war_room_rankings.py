@@ -36,7 +36,10 @@ COLUMNS = [
     "draft_rank",
     "position_rank_label",
     "tier",
-    "tier_status",
+    "tier_remaining",
+    "tier_scarcity_score",
+    "tier_next_projection_drop",
+    "tier_next_vorp_drop",
     "projected_points",
     "replacement_points",
     "vorp",
@@ -70,18 +73,13 @@ PROJECTION_AUDIT_COLUMNS = [
     "tier",
     "tier_size",
     "tier_drop",
-    "tier_status",
+    "tier_remaining",
+    "tier_scarcity_score",
+    "tier_next_projection_drop",
+    "tier_next_vorp_drop",
     "late_singleton_tier",
     "brain_score",
 ]
-
-BRAIN_SCARCITY_BY_TIER_STATUS = {
-    "ELITE SOLO TIER": 100.0,
-    "SMALL TIER": 85.0,
-    "LIMITED TIER": 60.0,
-    "DEPTH AVAILABLE": 25.0,
-}
-
 
 def _numeric_column(df, column):
     if column not in df.columns:
@@ -142,12 +140,7 @@ def _add_multipath_value_columns(audit):
     tier_scarcity_score = _numeric_column(audit, "tier_scarcity_score")
     tier_pressure = _numeric_column(audit, "tier_pressure")
 
-    direct_scarcity = (
-        audit.get("tier_status", pd.Series("", index=audit.index))
-        .map(BRAIN_SCARCITY_BY_TIER_STATUS)
-        .fillna(25.0)
-        .astype(float)
-    )
+    direct_scarcity = tier_scarcity_score
 
     # Draft Brain direct VORP path: normalized VORP * 10%.
     audit["brain_vorp_direct"] = vorp_score * 0.10
@@ -308,8 +301,11 @@ def main():
         "replacement_points",
         "vorp",
         "vorp_score",
-        "tier_status",
+        "tier",
+        "tier_remaining",
         "tier_scarcity_score",
+        "tier_next_projection_drop",
+        "tier_next_vorp_drop",
         "brain_vorp_total",
         "brain_scarcity_total",
         "brain_vorp_and_scarcity_total",
@@ -345,8 +341,11 @@ def main():
         "replacement_points",
         "vorp",
         "vorp_score",
-        "tier_status",
+        "tier",
+        "tier_remaining",
         "tier_scarcity_score",
+        "tier_next_projection_drop",
+        "tier_next_vorp_drop",
         "position_replacement_rank",
         "players_at_or_above_replacement",
         "brain_vorp_total",

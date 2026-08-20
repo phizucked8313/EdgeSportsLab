@@ -383,42 +383,6 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# TIER STATUS
-# ============================================================
-
-def add_tier_status(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add simple draft intelligence about tier scarcity.
-    """
-
-    df = df.copy()
-
-    def tier_status(row):
-        size = row["tier_size"]
-
-        if size == 1:
-            return "ELITE SOLO TIER"
-
-        if size == 2:
-            return "SMALL TIER"
-
-        if size <= 4:
-            return "LIMITED TIER"
-
-        return "DEPTH AVAILABLE"
-    df[
-        "tier_status"
-    ] = (
-        df.apply(
-            tier_status,
-            axis=1,
-        )
-    )
-
-    return df
-
-
-# ============================================================
 # FULL TIER ENGINE
 # ============================================================
 
@@ -481,10 +445,6 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df = add_live_tier_scarcity(
-        df
-    )
-
-    df = add_tier_status(
         df
     )
 

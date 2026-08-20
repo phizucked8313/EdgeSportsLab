@@ -15,7 +15,6 @@ def _row(name, position, draft_rank, tier, vorp, edgescore, projected_points):
         "tier_threshold": 17.5 if pd.notna(tier) else pd.NA,
         "tier_next_projection_drop": 17.5 if pd.notna(tier) else pd.NA,
         "tier_next_vorp_drop": 0.0 if pd.notna(tier) else pd.NA,
-        "tier_status": "SMALL TIER" if pd.notna(tier) else "",
         "draft_rank": draft_rank,
         "vorp": vorp,
         "edgescore": edgescore,
