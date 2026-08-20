@@ -48,7 +48,8 @@ def build_draft_brain_for_player(
     position = player_row.get("position", "")
     player_name = player_row.get("player_name_clean", "")
 
-    picks_until_next = max(1, int(draft_context.get("picks_until_user", 1)))
+    picks_until_raw = draft_context.get("picks_until_user", 1)
+    picks_until_next = 1 if picks_until_raw is None else max(1, int(picks_until_raw))
 
     if wait_report is None:
         wait_report = analyze_wait(
@@ -69,13 +70,7 @@ def build_draft_brain_for_player(
     run_score = float(position_run.get("run_score", 0))
     run_label = position_run.get("run_label", "NORMAL")
 
-    scarcity_score = 25
-    if tier_status == "LIMITED TIER":
-        scarcity_score = 60
-    elif tier_status in ["SMALL TIER", "TIER ALMOST GONE"]:
-        scarcity_score = 85
-    elif tier_status in ["ELITE SOLO TIER", "LAST PLAYER IN TIER"]:
-        scarcity_score = 100
+    scarcity_score = clamp(player_row.get("tier_scarcity_score", 0.0))
 
     vorp_score = clamp(player_row.get("vorp_score", vorp))
     safety_score = clamp(100 - injury_risk)
@@ -98,10 +93,19 @@ def build_draft_brain_for_player(
     if pressure >= 85:
         reasons.append("Very high draft pressure")
 
-    if tier_status in ["ELITE SOLO TIER", "LAST PLAYER IN TIER"]:
-        reasons.append("Last player remaining in current tier")
-    elif tier_status in ["SMALL TIER", "TIER ALMOST GONE"]:
-        reasons.append("Tier is nearly exhausted")
+    tier = pd.to_numeric(player_row.get("tier"), errors="coerce")
+    tier_remaining = pd.to_numeric(player_row.get("tier_remaining"), errors="coerce")
+    if pd.notna(tier) and pd.notna(tier_remaining):
+        tier_label = str(int(tier)) if float(tier).is_integer() else str(tier)
+        if tier_remaining <= 1:
+            reasons.append(
+                f"Last player remaining in {position} Tier {tier_label}"
+            )
+        elif tier_remaining <= 2:
+            reasons.append(
+                f"Only {int(tier_remaining)} players remaining in "
+                f"{position} Tier {tier_label}"
+            )
 
     if vorp >= 75:
         reasons.append("Strong positional value over replacement")
@@ -150,7 +154,8 @@ def build_draft_brain_for_player(
 def add_draft_brain(df: pd.DataFrame, draft_context):
     """Add Draft Brain output using one wait cache and one live run cache per rerun."""
     df = df.copy()
-    picks_until_next = max(1, int(draft_context.get("picks_until_user", 1)))
+    picks_until_raw = draft_context.get("picks_until_user", 1)
+    picks_until_next = 1 if picks_until_raw is None else max(1, int(picks_until_raw))
 
     wait_cache = build_wait_report_cache(
         df,

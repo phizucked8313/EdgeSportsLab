@@ -64,23 +64,17 @@ def calculate_pressure_score(
     # TIER PRESSURE
     # --------------------------------------------------------
 
-    df["tier_pressure"] = 30.0
-
-    df.loc[
-        df["tier_status"]
-        == "LIMITED TIER",
-        "tier_pressure"
-    ] = 60
-
-    df.loc[
-        df["tier_status"].isin(["SMALL TIER", "TIER ALMOST GONE"]),
-        "tier_pressure"
-    ] = 85
-
-    df.loc[
-        df["tier_status"].isin(["ELITE SOLO TIER", "LAST PLAYER IN TIER"]),
-        "tier_pressure"
-    ] = 100
+    df["tier_pressure"] = (
+        pd.to_numeric(
+            df.get("tier_scarcity_score", pd.Series(0.0, index=df.index)),
+            errors="coerce",
+        )
+        .fillna(0.0)
+        .clip(
+            lower=0,
+            upper=100,
+        )
+    )
 
 
     # --------------------------------------------------------
