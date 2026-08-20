@@ -20,6 +20,7 @@ from fantasy_draft_model.models.league_profile import LEAGUES
 
 
 SNAPSHOT_SCHEMA = "edgeiq-rankings-snapshot/v1"
+SNAPSHOT_ARCHIVE_SCHEMA = "edgeiq-rankings-snapshot-archive/v1"
 REQUIRED_RANKING_COLUMNS = (
     "player_name_clean",
     "position",
@@ -244,12 +245,19 @@ def save_rankings_snapshot(
     return RankingDataStatus("LIVE", created_at, 0.0)
 
 
-def load_rankings_snapshot(league_key, data_path, metadata_path):
-    """Load only a complete, checksum-verified rankings generation."""
+def _read_rankings_snapshot(
+    league_key,
+    data_path,
+    metadata_path,
+    *,
+    production_publication=False,
+):
+    """Read and validate a snapshot plus the exact pointer-generation bytes."""
     metadata_path = Path(metadata_path)
     try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        metadata_payload = metadata_path.read_bytes()
+        metadata = json.loads(metadata_payload.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("snapshot metadata is unavailable or invalid") from error
     _validate_metadata(metadata, league_key)
     generation_path = _data_path_from_metadata(data_path, metadata)
@@ -264,13 +272,179 @@ def load_rankings_snapshot(league_key, data_path, metadata_path):
     except (UnicodeDecodeError, pd.errors.ParserError) as error:
         raise ValueError("snapshot CSV is invalid") from error
     _validate_rankings(rankings)
+    if production_publication:
+        _validate_production_publication(rankings, league_key)
     if list(rankings.columns) != metadata["columns"]:
         raise ValueError("snapshot CSV columns do not match metadata")
     if len(rankings) != metadata["row_count"]:
         raise ValueError("snapshot CSV row count does not match metadata")
     created_at = _utc_timestamp(metadata["created_at"])
     age_seconds = max(0.0, (_utc_now() - created_at).total_seconds())
-    return rankings, RankingDataStatus("CACHED/OFFLINE", metadata["created_at"], age_seconds)
+    return (
+        rankings,
+        RankingDataStatus("CACHED/OFFLINE", metadata["created_at"], age_seconds),
+        metadata_path,
+        metadata_payload,
+        generation_path,
+        csv_payload,
+    )
+
+
+def load_rankings_snapshot(
+    league_key,
+    data_path,
+    metadata_path,
+    *,
+    production_publication=False,
+):
+    """Load only a complete, checksum-verified rankings generation."""
+    rankings, status, *_artifacts = _read_rankings_snapshot(
+        league_key,
+        data_path,
+        metadata_path,
+        production_publication=production_publication,
+    )
+    return rankings, status
+
+
+def _safe_archive_component(value):
+    component = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value)).strip(".-")
+    return component or "archive"
+
+
+def _unique_snapshot_archive_directory(archive_root, timestamp, archive_id):
+    archive_root = Path(archive_root)
+    archive_root.mkdir(parents=True, exist_ok=True)
+    stamp = timestamp.strftime("%Y%m%dT%H%M%S%fZ")
+    base_name = f"{stamp}-{_safe_archive_component(archive_id)}"
+    candidate = archive_root / base_name
+    counter = 1
+    while True:
+        try:
+            candidate.mkdir(exist_ok=False)
+            return candidate
+        except FileExistsError:
+            candidate = archive_root / f"{base_name}-{counter}"
+            counter += 1
+
+
+def _snapshot_archive_entry(role, source_path, destination, source_bytes, timestamp):
+    archived_bytes = destination.read_bytes()
+    if (
+        len(archived_bytes) != len(source_bytes)
+        or sha256(archived_bytes).digest() != sha256(source_bytes).digest()
+    ):
+        raise OSError(f"rankings snapshot archive verification failed for {destination}")
+    return {
+        "role": role,
+        "source_path": str(Path(source_path).resolve()),
+        "archive_path": str(destination.resolve()),
+        "byte_length": len(source_bytes),
+        "sha256": sha256(source_bytes).hexdigest(),
+        "timestamp": timestamp.isoformat(),
+    }
+
+
+def _verify_snapshot_archive(directory, manifest):
+    manifest_path = Path(directory) / "manifest.json"
+    try:
+        reloaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise OSError(f"rankings snapshot archive manifest failed for {manifest_path}") from error
+    if reloaded_manifest != manifest:
+        raise OSError(f"rankings snapshot archive manifest verification failed for {manifest_path}")
+    for entry in reloaded_manifest["artifacts"]:
+        archived_bytes = Path(entry["archive_path"]).read_bytes()
+        if (
+            len(archived_bytes) != entry["byte_length"]
+            or sha256(archived_bytes).hexdigest() != entry["sha256"]
+        ):
+            raise OSError(
+                f"rankings snapshot archive verification failed for {entry['archive_path']}"
+            )
+    return manifest_path
+
+
+def archive_rankings_snapshot(
+    league_key,
+    data_path,
+    metadata_path,
+    archive_root,
+    *,
+    production_publication=False,
+    now_func=_utc_now,
+    id_func=lambda: uuid4().hex,
+):
+    """Archive a validated pointer and generation before a later replacement.
+
+    Controllers must call this successfully before ``save_rankings_snapshot``
+    replaces a production pointer. The live source files are never modified:
+    the validated pointer and referenced CSV are copied to a unique directory,
+    checked by byte length and SHA-256, then a manifest is written last.
+    Archival validates snapshot integrity by default without treating historical
+    fixture-sized data as eligible for production use.
+    """
+    timestamp = now_func()
+    if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
+        raise ValueError("snapshot archive timestamp must be timezone-aware")
+    timestamp = timestamp.astimezone(timezone.utc)
+    (
+        _rankings,
+        _status,
+        source_metadata_path,
+        metadata_payload,
+        generation_path,
+        csv_payload,
+    ) = _read_rankings_snapshot(
+        league_key,
+        data_path,
+        metadata_path,
+        production_publication=production_publication,
+    )
+    try:
+        pointer_is_stable = source_metadata_path.read_bytes() == metadata_payload
+        generation_is_stable = generation_path.read_bytes() == csv_payload
+    except OSError as error:
+        raise OSError("rankings snapshot changed while archiving; retry before replacement") from error
+    if not pointer_is_stable or not generation_is_stable:
+        raise OSError("rankings snapshot changed while archiving; retry before replacement")
+
+    archive_directory = _unique_snapshot_archive_directory(
+        archive_root,
+        timestamp,
+        id_func(),
+    )
+    pointer_destination = archive_directory / source_metadata_path.name
+    generation_destination = archive_directory / generation_path.name
+    _atomic_write_bytes(pointer_destination, metadata_payload)
+    _atomic_write_bytes(generation_destination, csv_payload)
+    manifest = {
+        "schema": SNAPSHOT_ARCHIVE_SCHEMA,
+        "league_key": league_key,
+        "archived_at": timestamp.isoformat(),
+        "artifacts": [
+            _snapshot_archive_entry(
+                "pointer",
+                source_metadata_path,
+                pointer_destination,
+                metadata_payload,
+                timestamp,
+            ),
+            _snapshot_archive_entry(
+                "generation",
+                generation_path,
+                generation_destination,
+                csv_payload,
+                timestamp,
+            ),
+        ],
+    }
+    _atomic_write_bytes(
+        archive_directory / "manifest.json",
+        (json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
+    )
+    _verify_snapshot_archive(archive_directory, manifest)
+    return archive_directory
 
 
 def run_with_timeout(
@@ -345,6 +519,7 @@ def load_rankings_with_fallback(
                 league_key,
                 data_path,
                 metadata_path,
+                production_publication=production_publication,
             )
         except Exception as cache_error:
             raise RankingRefreshError(
