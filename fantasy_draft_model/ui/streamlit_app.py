@@ -48,30 +48,52 @@ def get_or_build_base_rankings(
     paths=None,
     builder=None,
     timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+    status_cache=None,
 ):
     """Build expensive rankings once per league and reuse them from the supplied cache."""
     if builder is None:
         builder = build_draft_rankings
+    if paths is None:
+        paths = RANKINGS_SNAPSHOT_PATHS
     if league_key not in cache:
-        if paths is None:
-            cache[league_key] = builder(league_key)
-        else:
-            cache[league_key], _status = load_rankings_with_fallback(
-                league_key,
-                builder=builder,
-                paths=paths,
-                timeout_seconds=timeout_seconds,
-            )
+        cache[league_key], status = load_rankings_with_fallback(
+            league_key,
+            builder=builder,
+            paths=paths,
+            timeout_seconds=timeout_seconds,
+        )
+        if status_cache is not None:
+            status_cache[league_key] = status
     return cache[league_key]
 
 
-def build_live_view(search_text="", position=None, base_rankings=None, data_status=None):
+def build_live_view(
+    search_text="",
+    position=None,
+    base_rankings=None,
+    data_status=None,
+    *,
+    paths=None,
+    builder=None,
+    timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+):
     """Build the War Room snapshot using fresh live context and optional cached rankings."""
     state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
 
     if base_rankings is None:
-        base_rankings = build_draft_rankings(state["league_key"])
+        if builder is None:
+            builder = build_draft_rankings
+        if paths is None:
+            paths = RANKINGS_SNAPSHOT_PATHS
+        base_rankings, loaded_status = load_rankings_with_fallback(
+            state["league_key"],
+            builder=builder,
+            paths=paths,
+            timeout_seconds=timeout_seconds,
+        )
+        if data_status is None:
+            data_status = loaded_status
 
     available_rankings = filter_available_players(base_rankings, state)
     if len(available_rankings) == len(base_rankings):
@@ -265,16 +287,14 @@ def run_war_room_ui(st):
         if RANKINGS_STATUS_CACHE_KEY not in st.session_state:
             st.session_state[RANKINGS_STATUS_CACHE_KEY] = {}
         status_cache = st.session_state[RANKINGS_STATUS_CACHE_KEY]
-        if state["league_key"] not in rankings_cache:
-            base_rankings, status_cache[state["league_key"]] = load_rankings_with_fallback(
-                state["league_key"],
-                builder=build_draft_rankings,
-                paths=RANKINGS_SNAPSHOT_PATHS,
-                timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
-            )
-            rankings_cache[state["league_key"]] = base_rankings
-        else:
-            base_rankings = rankings_cache[state["league_key"]]
+        base_rankings = get_or_build_base_rankings(
+            rankings_cache,
+            state["league_key"],
+            paths=RANKINGS_SNAPSHOT_PATHS,
+            builder=build_draft_rankings,
+            timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+            status_cache=status_cache,
+        )
         data_status = status_cache.get(state["league_key"])
 
     if base_rankings is None:

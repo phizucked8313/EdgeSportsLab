@@ -1,5 +1,7 @@
 import json
+import queue
 import time
+from hashlib import sha256
 
 import pandas as pd
 import pytest
@@ -8,6 +10,7 @@ from fantasy_draft_model.rankings_snapshot import (
     RankingRefreshError,
     load_rankings_snapshot,
     load_rankings_with_fallback,
+    run_with_timeout,
     save_rankings_snapshot,
 )
 
@@ -93,6 +96,32 @@ def test_snapshot_rejects_tampered_csv_checksum(tmp_path):
         load_rankings_snapshot("drunk_sundays", **paths)
 
 
+def test_snapshot_rejects_tampered_csv_missing_required_column(tmp_path):
+    paths = _paths(tmp_path)
+    save_rankings_snapshot(_board(), "drunk_sundays", **paths)
+    metadata = json.loads(paths["metadata_path"].read_text(encoding="utf-8"))
+    generation_path = tmp_path / metadata["data_file"]
+    tampered = pd.read_csv(generation_path).drop(columns=["team"])
+    payload = tampered.to_csv(index=False).encode("utf-8")
+    generation_path.write_bytes(payload)
+    metadata["csv_sha256"] = sha256(payload).hexdigest()
+    paths["metadata_path"].write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="required"):
+        load_rankings_snapshot("drunk_sundays", **paths)
+
+
+def test_snapshot_rejects_mismatched_metadata_column_list(tmp_path):
+    paths = _paths(tmp_path)
+    save_rankings_snapshot(_board(), "drunk_sundays", **paths)
+    metadata = json.loads(paths["metadata_path"].read_text(encoding="utf-8"))
+    metadata["columns"].append("not_present")
+    paths["metadata_path"].write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="columns"):
+        load_rankings_snapshot("drunk_sundays", **paths)
+
+
 @pytest.mark.parametrize(
     ("board", "message"),
     [
@@ -171,6 +200,33 @@ def test_live_timeout_uses_cached_snapshot_and_returns_promptly(tmp_path):
     assert loaded["player_name_clean"].tolist() == ["Alpha WR", "Beta RB"]
     assert status.source == "CACHED/OFFLINE"
     assert "exceeded" in status.failure_reason
+
+
+def test_timeout_uses_injected_daemon_thread_and_wait_seam_without_wall_clock():
+    captured = {}
+
+    class NeverCompletesThread:
+        def __init__(self, *, target, name, daemon):
+            captured.update(target=target, name=name, daemon=daemon)
+
+        def start(self):
+            captured["started"] = True
+
+    def timed_out_wait(_result_queue, timeout_seconds):
+        captured["timeout_seconds"] = timeout_seconds
+        raise queue.Empty
+
+    with pytest.raises(TimeoutError, match="exceeded 15s"):
+        run_with_timeout(
+            lambda: _board(),
+            15,
+            thread_factory=NeverCompletesThread,
+            wait_for_result=timed_out_wait,
+        )
+
+    assert captured["daemon"] is True
+    assert captured["started"] is True
+    assert captured["timeout_seconds"] == 15
 
 
 def test_live_failure_without_valid_cache_raises_refresh_error(tmp_path):

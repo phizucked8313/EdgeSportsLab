@@ -2,14 +2,17 @@ import pandas as pd
 import nflreadpy as nfl
 
 
-def load_depth_charts():
+def load_depth_charts(depth_chart_loader=None):
     """
     Load the current NFL depth charts and keep each team's latest snapshot.
     """
 
     print("\nLoading NFL depth charts...")
 
-    depth = nfl.load_depth_charts()
+    if depth_chart_loader is None:
+        depth_chart_loader = nfl.load_depth_charts
+
+    depth = depth_chart_loader()
     depth = depth.to_pandas()
 
     depth["dt"] = pd.to_datetime(

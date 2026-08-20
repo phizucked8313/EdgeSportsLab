@@ -37,7 +37,7 @@ def add_rookie_identity(df, current_season=CURRENT_SEASON):
     return df
 
 
-def load_current_rosters():
+def load_current_rosters(roster_loader=None):
     """
     Load current NFL roster information for EdgeIQ.
 
@@ -49,7 +49,10 @@ def load_current_rosters():
         f"\nLoading {CURRENT_SEASON} NFL rosters..."
     )
 
-    rosters = nfl.load_rosters(
+    if roster_loader is None:
+        roster_loader = nfl.load_rosters
+
+    rosters = roster_loader(
         seasons=[CURRENT_SEASON]
     )
 

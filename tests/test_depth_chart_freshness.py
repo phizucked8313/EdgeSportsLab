@@ -1,6 +1,10 @@
 import pandas as pd
 
 from fantasy_draft_model.integrations import depth_chart_loader
+from fantasy_draft_model.rankings_snapshot import (
+    load_rankings_with_fallback,
+    save_rankings_snapshot,
+)
 
 
 class FakeDepthFrame:
@@ -95,3 +99,36 @@ def test_load_depth_charts_keeps_latest_snapshot_per_team(monkeypatch):
         "STARTER",
         "BACKUP",
     ]
+
+
+def test_depth_chart_upstream_failure_falls_back_through_rankings_coordinator(tmp_path):
+    paths = {
+        "data_path": tmp_path / "rankings.csv",
+        "metadata_path": tmp_path / "rankings.json",
+    }
+    cached = pd.DataFrame(
+        [{"player_name_clean": "Cached RB", "position": "RB", "team": "DET", "draft_rank": 1}]
+    )
+    save_rankings_snapshot(cached, "drunk_sundays", **paths)
+    calls = []
+
+    def stalled_depth_chart_load():
+        calls.append(True)
+        raise TimeoutError("nflverse depth-chart upstream stalled")
+
+    def builder(_league_key):
+        depth_chart_loader.load_depth_charts(
+            depth_chart_loader=stalled_depth_chart_load,
+        )
+
+    loaded, status = load_rankings_with_fallback(
+        "drunk_sundays",
+        builder=builder,
+        paths=paths,
+        timeout_seconds=15,
+    )
+
+    assert calls == [True]
+    assert loaded["player_name_clean"].tolist() == ["Cached RB"]
+    assert status.source == "CACHED/OFFLINE"
+    assert "stalled" in status.failure_reason

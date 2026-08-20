@@ -150,7 +150,8 @@ def test_build_live_view_forwards_ui_filters(monkeypatch):
         position="RB",
     )
 
-    assert result == {"ok": True}
+    assert result["ok"] is True
+    assert result["ranking_data_status"].source == "LIVE"
     assert captured == {
         "search_text": "beta",
         "position": "RB",

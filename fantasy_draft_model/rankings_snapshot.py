@@ -221,7 +221,13 @@ def load_rankings_snapshot(league_key, data_path, metadata_path):
     return rankings, RankingDataStatus("CACHED/OFFLINE", metadata["created_at"], age_seconds)
 
 
-def run_with_timeout(callable_, timeout_seconds):
+def run_with_timeout(
+    callable_,
+    timeout_seconds,
+    *,
+    thread_factory=threading.Thread,
+    wait_for_result=None,
+):
     """Run callable in a daemon worker so a timed-out request cannot delay exit."""
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
@@ -233,10 +239,12 @@ def run_with_timeout(callable_, timeout_seconds):
         except BaseException as error:  # Preserve builder failures for fallback.
             result_queue.put((False, error))
 
-    worker = threading.Thread(target=invoke, name="edgeiq-rankings-refresh", daemon=True)
+    worker = thread_factory(target=invoke, name="edgeiq-rankings-refresh", daemon=True)
     worker.start()
+    if wait_for_result is None:
+        wait_for_result = lambda result_queue, timeout: result_queue.get(timeout=timeout)
     try:
-        succeeded, value = result_queue.get(timeout=timeout_seconds)
+        succeeded, value = wait_for_result(result_queue, timeout_seconds)
     except queue.Empty as error:
         raise TimeoutError(f"live rankings refresh exceeded {timeout_seconds:g}s") from error
     if succeeded:
