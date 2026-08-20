@@ -291,16 +291,25 @@ def undo_last_manual_pick(state, state_path=DEFAULT_STATE_PATH):
     return removed
 
 
-def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
+def initialize_war_room(
+    league_identifier,
+    state_path=DEFAULT_STATE_PATH,
+    *,
+    clock_func=utc_now_iso,
+    id_func=new_draft_id,
+    keeper_loader=None,
+    state_saver=None,
+):
     """Create and persist a fresh War Room state for one league."""
     league = resolve_league(league_identifier)
-    keepers = load_keepers(league["name"])
+    keeper_loader = keeper_loader or load_keepers
+    keepers = keeper_loader(league["name"])
     keeper_reservations = build_keeper_reservations(league, keepers)
 
-    timestamp = utc_now_iso()
+    timestamp = clock_func()
     state = {
         "schema_version": 2,
-        "draft_id": new_draft_id(),
+        "draft_id": id_func(),
         "created_at": timestamp,
         "updated_at": timestamp,
         "status": "active",
@@ -319,5 +328,5 @@ def initialize_war_room(league_identifier, state_path=DEFAULT_STATE_PATH):
     advance_keeper_slots(state)
     state["status"] = derive_draft_status(state)
     validate_war_room_state(state, keeper_reservations=keeper_reservations)
-    save_war_room_state(state, state_path)
-    return state
+    saver = state_saver or save_war_room_state
+    return saver(state, state_path)
