@@ -122,3 +122,58 @@ def test_build_live_draft_context_finds_next_snake_turn_after_user_pick():
     assert context["next_user_pick"] == 16
     assert context["picks_until_user"] == 6
     assert context["user_on_clock"] is False
+
+
+def test_build_user_roster_includes_user_manual_picks_and_keepers():
+    state = _drunk_sundays_state(current_pick=20)
+    state["manual_picks"] = [
+        {
+            "pick_number": 9,
+            "round": 1,
+            "fantasy_team": "BLKWDW'S",
+            "player_name": "User WR",
+            "position": "WR",
+            "nfl_team": "CLE",
+        },
+        {
+            "pick_number": 10,
+            "round": 1,
+            "fantasy_team": "Door Dash At 2AM",
+            "player_name": "Other RB",
+            "position": "RB",
+            "nfl_team": "DET",
+        },
+    ]
+    state["keeper_reservations"] = [
+        {
+            "pick_number": 33,
+            "round": 3,
+            "fantasy_team": "BLKWDW'S",
+            "player_name": "User Keeper",
+            "position": "RB",
+            "nfl_team": "LV",
+        }
+    ]
+
+    roster = draft_war_room.build_user_roster(state)
+
+    assert roster["player_name"].tolist() == ["User WR", "User Keeper"]
+    assert roster["source"].tolist() == ["draft", "keeper"]
+
+
+def test_build_user_roster_returns_expected_display_columns_when_empty():
+    state = _drunk_sundays_state(current_pick=1)
+    state["manual_picks"] = []
+    state["keeper_reservations"] = []
+
+    roster = draft_war_room.build_user_roster(state)
+
+    assert roster.empty
+    assert roster.columns.tolist() == [
+        "player_name",
+        "position",
+        "nfl_team",
+        "round",
+        "pick_number",
+        "source",
+    ]
