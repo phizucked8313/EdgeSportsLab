@@ -1,7 +1,11 @@
 """EdgeIQ Streamlit War Room shell."""
 
 from fantasy_draft_model.draft_assistant import build_draft_assistant
-from fantasy_draft_model.live_war_room import load_war_room_state
+from fantasy_draft_model.live_war_room import (
+    load_war_room_state,
+    record_manual_pick,
+    undo_last_manual_pick,
+)
 from fantasy_draft_model.ui.draft_war_room import (
     build_live_draft_context,
     build_war_room_snapshot,
@@ -25,6 +29,31 @@ def build_live_view(search_text="", position=None):
         search_text=search_text,
         position=position,
     )
+
+
+def record_selected_player(available_players, player_name):
+    """Record one selected available player using fresh persisted War Room state."""
+    selected_name = str(player_name).strip()
+    normalized_name = selected_name.casefold()
+    matches = available_players[
+        available_players["player_name_clean"]
+        .astype(str)
+        .str.strip()
+        .str.casefold()
+        == normalized_name
+    ]
+
+    if matches.empty:
+        raise ValueError(f"{selected_name} is not available")
+
+    state = load_war_room_state()
+    return record_manual_pick(state, matches.iloc[0])
+
+
+def undo_latest_pick():
+    """Undo the latest manual pick using fresh persisted War Room state."""
+    state = load_war_room_state()
+    return undo_last_manual_pick(state)
 
 
 def render_war_room_snapshot(st, snapshot):
