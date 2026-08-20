@@ -2,6 +2,11 @@
 
 from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
 from fantasy_draft_model.rankings import build_draft_rankings
+from fantasy_draft_model.config import DATA_DIR
+from fantasy_draft_model.rankings_snapshot import (
+    DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+    load_rankings_with_fallback,
+)
 from fantasy_draft_model.live_war_room import (
     initialize_war_room,
     load_war_room_state,
@@ -21,6 +26,11 @@ from fantasy_draft_model.ui.draft_war_room import (
 
 POSITION_OPTIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"]
 BASE_RANKINGS_CACHE_KEY = "_edgeiq_base_rankings_cache"
+RANKINGS_STATUS_CACHE_KEY = "_edgeiq_rankings_status_cache"
+RANKINGS_SNAPSHOT_PATHS = {
+    "data_path": DATA_DIR / "war_room_rankings.csv",
+    "metadata_path": DATA_DIR / "war_room_rankings.json",
+}
 
 
 def load_or_initialize_war_room_state():
@@ -31,14 +41,31 @@ def load_or_initialize_war_room_state():
         return initialize_war_room("drunk_sundays")
 
 
-def get_or_build_base_rankings(cache, league_key):
+def get_or_build_base_rankings(
+    cache,
+    league_key,
+    *,
+    paths=None,
+    builder=None,
+    timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+):
     """Build expensive rankings once per league and reuse them from the supplied cache."""
+    if builder is None:
+        builder = build_draft_rankings
     if league_key not in cache:
-        cache[league_key] = build_draft_rankings(league_key)
+        if paths is None:
+            cache[league_key] = builder(league_key)
+        else:
+            cache[league_key], _status = load_rankings_with_fallback(
+                league_key,
+                builder=builder,
+                paths=paths,
+                timeout_seconds=timeout_seconds,
+            )
     return cache[league_key]
 
 
-def build_live_view(search_text="", position=None, base_rankings=None):
+def build_live_view(search_text="", position=None, base_rankings=None, data_status=None):
     """Build the War Room snapshot using fresh live context and optional cached rankings."""
     state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
@@ -66,6 +93,8 @@ def build_live_view(search_text="", position=None, base_rankings=None):
             snapshot["roster"],
             base_rankings,
         )
+    if data_status is not None:
+        snapshot["ranking_data_status"] = data_status
     return snapshot
 
 
@@ -97,6 +126,11 @@ def undo_latest_pick():
 def render_war_room_snapshot(st, snapshot):
     """Render the current War Room snapshot."""
     context = snapshot["context"]
+
+    data_status = snapshot.get("ranking_data_status")
+    if data_status is not None and hasattr(st, "caption"):
+        freshness = "unknown age" if data_status.age_seconds is None else f"{data_status.age_seconds:.0f}s old"
+        st.caption(f"Rankings source: {data_status.source} ({freshness})")
 
     st.metric("Current Pick", context.get("current_pick"))
     st.metric("Next BLKWDW'S Pick", context.get("next_user_pick"))
@@ -227,10 +261,21 @@ def run_war_room_ui(st):
         state = load_or_initialize_war_room_state()
         if BASE_RANKINGS_CACHE_KEY not in st.session_state:
             st.session_state[BASE_RANKINGS_CACHE_KEY] = {}
-        base_rankings = get_or_build_base_rankings(
-            st.session_state[BASE_RANKINGS_CACHE_KEY],
-            state["league_key"],
-        )
+        rankings_cache = st.session_state[BASE_RANKINGS_CACHE_KEY]
+        if RANKINGS_STATUS_CACHE_KEY not in st.session_state:
+            st.session_state[RANKINGS_STATUS_CACHE_KEY] = {}
+        status_cache = st.session_state[RANKINGS_STATUS_CACHE_KEY]
+        if state["league_key"] not in rankings_cache:
+            base_rankings, status_cache[state["league_key"]] = load_rankings_with_fallback(
+                state["league_key"],
+                builder=build_draft_rankings,
+                paths=RANKINGS_SNAPSHOT_PATHS,
+                timeout_seconds=DRAFT_NIGHT_RANKINGS_REFRESH_TIMEOUT_SECONDS,
+            )
+            rankings_cache[state["league_key"]] = base_rankings
+        else:
+            base_rankings = rankings_cache[state["league_key"]]
+        data_status = status_cache.get(state["league_key"])
 
     if base_rankings is None:
         snapshot = build_live_view(
@@ -242,6 +287,7 @@ def run_war_room_ui(st):
             search_text=search_text,
             position=position,
             base_rankings=base_rankings,
+            data_status=data_status,
         )
 
     render_war_room_snapshot(st, snapshot)

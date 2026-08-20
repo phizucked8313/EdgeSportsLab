@@ -1,8 +1,15 @@
 import requests
 import pandas as pd
 
+from fantasy_draft_model.rankings_snapshot import (
+    DRAFT_NIGHT_CONNECT_TIMEOUT_SECONDS,
+    DRAFT_NIGHT_READ_TIMEOUT_SECONDS,
+)
+
 
 SLEEPER_PLAYERS_URL = "https://api.sleeper.app/v1/players/nfl"
+SLEEPER_CONNECT_TIMEOUT_SECONDS = DRAFT_NIGHT_CONNECT_TIMEOUT_SECONDS
+SLEEPER_READ_TIMEOUT_SECONDS = DRAFT_NIGHT_READ_TIMEOUT_SECONDS
 
 FANTASY_POSITIONS = {
     "QB",
@@ -19,7 +26,10 @@ def load_sleeper_players():
 
     response = requests.get(
         SLEEPER_PLAYERS_URL,
-        timeout=30,
+        timeout=(
+            SLEEPER_CONNECT_TIMEOUT_SECONDS,
+            SLEEPER_READ_TIMEOUT_SECONDS,
+        ),
     )
     response.raise_for_status()
 
