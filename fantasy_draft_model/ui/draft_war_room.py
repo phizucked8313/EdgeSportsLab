@@ -99,8 +99,13 @@ def build_available_player_display(rankings):
     """Return only the decision columns needed on the draft-night board."""
     columns = select_display_columns(rankings, DRAFT_NIGHT_COLUMNS)
     display = rankings.loc[:, columns].copy().reset_index(drop=True)
+    tier_label_index = DRAFT_NIGHT_COLUMNS.index("tier_label")
+    tier_label_position = sum(
+        column in display.columns
+        for column in DRAFT_NIGHT_COLUMNS[:tier_label_index]
+    )
     display.insert(
-        DRAFT_NIGHT_COLUMNS.index("tier_label"),
+        tier_label_position,
         "tier_label",
         rankings.apply(get_display_tier_label, axis=1).to_numpy(),
     )

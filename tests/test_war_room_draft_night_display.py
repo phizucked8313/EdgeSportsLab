@@ -9,7 +9,7 @@ DRAFT_NIGHT_COLUMNS = [
     "position",
     "team",
     "position_rank_label",
-    "tier",
+    "tier_label",
     "projected_points",
     "vorp",
     "edgescore",
@@ -52,6 +52,8 @@ def test_build_available_player_display_keeps_only_draft_night_columns():
 
     assert display.columns.tolist() == DRAFT_NIGHT_COLUMNS
     assert display.iloc[0]["player_name_clean"] == "Chris Olave"
+    assert display.iloc[0]["tier_label"] == "WR Tier 2"
+    assert "tier" not in display.columns
     assert "player_id" not in display.columns
     assert "targets" not in display.columns
 
