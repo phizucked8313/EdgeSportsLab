@@ -61,6 +61,7 @@ class FakeStreamlit:
         self.metrics = []
         self.subheaders = []
         self.dataframes = []
+        self.markdowns = []
 
     def metric(self, label, value):
         self.metrics.append((label, value))
@@ -73,6 +74,9 @@ class FakeStreamlit:
 
     def dataframe(self, dataframe, **kwargs):
         self.dataframes.append((dataframe, kwargs))
+
+    def markdown(self, body, **kwargs):
+        self.markdowns.append((str(body), kwargs))
 
 
 def test_render_war_room_snapshot_hides_indexes_and_uses_readable_available_board():
@@ -96,11 +100,16 @@ def test_render_war_room_snapshot_hides_indexes_and_uses_readable_available_boar
 
     streamlit_app.render_war_room_snapshot(fake_st, snapshot)
 
-    available_display, available_kwargs = fake_st.dataframes[0]
-    roster_display, roster_kwargs = fake_st.dataframes[1]
-    history_display, history_kwargs = fake_st.dataframes[2]
+    assert len(fake_st.markdowns) == 1
+    available_html, available_kwargs = fake_st.markdowns[0]
+    roster_display, roster_kwargs = fake_st.dataframes[0]
+    history_display, history_kwargs = fake_st.dataframes[1]
 
-    assert available_display.columns.tolist() == DRAFT_NIGHT_COLUMNS
-    assert available_kwargs["hide_index"] is True
+    assert "Chris Olave" in available_html
+    assert "player_id" not in available_html
+    assert "targets" not in available_html
+    assert available_kwargs["unsafe_allow_html"] is True
+    assert roster_display is roster
+    assert history_display is history
     assert roster_kwargs["hide_index"] is True
     assert history_kwargs["hide_index"] is True
