@@ -16,6 +16,7 @@ from fantasy_draft_model.ui.draft_war_room import (
     build_player_ranking_explanation,
     build_static_available_board_html,
     build_war_room_snapshot,
+    filter_available_players,
 )
 
 
@@ -43,14 +44,24 @@ def build_live_view(search_text="", position=None, base_rankings=None):
     state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
 
-    if base_rankings is None:
+    unavailable_records = (
+        state.get("manual_picks", [])
+        or state.get("keeper_reservations", [])
+    )
+    if base_rankings is None and not unavailable_records:
         board = build_draft_assistant(
             state["league_key"],
             draft_context=context,
         )
     else:
+        if base_rankings is None:
+            base_rankings = build_draft_rankings(state["league_key"])
+
+        available_rankings = filter_available_players(base_rankings, state)
+        if len(available_rankings) == len(base_rankings):
+            available_rankings = base_rankings
         board = build_draft_assistant_from_rankings(
-            base_rankings,
+            available_rankings,
             draft_context=context,
         )
 
