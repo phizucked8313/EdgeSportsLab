@@ -177,3 +177,52 @@ def test_build_user_roster_returns_expected_display_columns_when_empty():
         "pick_number",
         "source",
     ]
+
+
+def test_build_war_room_snapshot_composes_read_only_ui_data():
+    state = _drunk_sundays_state(current_pick=10)
+    state["manual_picks"] = [
+        {
+            "pick_number": 9,
+            "round": 1,
+            "fantasy_team": "BLKWDW'S",
+            "player_name": "Alpha WR",
+            "position": "WR",
+            "nfl_team": "CLE",
+        }
+    ]
+    state["keeper_reservations"] = [
+        {
+            "pick_number": 33,
+            "round": 3,
+            "fantasy_team": "BLKWDW'S",
+            "player_name": "Keeper TE",
+            "position": "TE",
+            "nfl_team": "KC",
+        }
+    ]
+
+    snapshot = draft_war_room.build_war_room_snapshot(
+        _rankings(),
+        state,
+        search_text="beta",
+        position="RB",
+    )
+
+    assert snapshot["context"]["next_user_pick"] == 16
+    assert snapshot["available"]["player_name_clean"].tolist() == ["Beta RB"]
+    assert snapshot["filtered_available"]["player_name_clean"].tolist() == ["Beta RB"]
+    assert snapshot["roster"]["player_name"].tolist() == ["Alpha WR", "Keeper TE"]
+    assert snapshot["recent_history"]["player_name"].tolist() == ["Alpha WR"]
+
+
+def test_build_war_room_snapshot_does_not_mutate_rankings():
+    rankings = _rankings()
+    original = rankings.copy(deep=True)
+    state = _drunk_sundays_state(current_pick=1)
+    state["manual_picks"] = []
+    state["keeper_reservations"] = []
+
+    draft_war_room.build_war_room_snapshot(rankings, state)
+
+    pd.testing.assert_frame_equal(rankings, original)
