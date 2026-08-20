@@ -18,6 +18,17 @@ PLAYERS = [
     "George Pickens",
 ]
 
+PROJECTION_AUDIT_PLAYERS = [
+    "Trey McBride",
+    "Brock Bowers",
+    "Christian McCaffrey",
+    "Bijan Robinson",
+    "Jahmyr Gibbs",
+    "Jonathan Taylor",
+    "De'Von Achane",
+    "Derrick Henry",
+]
+
 COLUMNS = [
     "player_name_clean",
     "position",
@@ -42,6 +53,28 @@ COLUMNS = [
     "brain_warnings",
 ]
 
+PROJECTION_AUDIT_COLUMNS = [
+    "player_name_clean",
+    "position",
+    "draft_rank",
+    "position_rank_label",
+    "custom_points_per_game",
+    "baseline_projection",
+    "targets_per_game",
+    "target_share",
+    "opportunity_score",
+    "opportunity_multiplier",
+    "injury_multiplier",
+    "projected_points",
+    "projection_change_from_baseline",
+    "tier",
+    "tier_size",
+    "tier_drop",
+    "tier_status",
+    "late_singleton_tier",
+    "brain_score",
+]
+
 BRAIN_SCARCITY_BY_TIER_STATUS = {
     "ELITE SOLO TIER": 100.0,
     "SMALL TIER": 85.0,
@@ -54,6 +87,47 @@ def _numeric_column(df, column):
     if column not in df.columns:
         return pd.Series(0.0, index=df.index, dtype=float)
     return pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+
+
+def build_projection_component_audit(board, player_names):
+    """Show projection inputs and flag singleton tiers below Tier 1.
+
+    This is diagnostic only and never mutates the supplied board.
+    """
+    if "player_name_clean" not in board.columns:
+        return pd.DataFrame(columns=PROJECTION_AUDIT_COLUMNS)
+
+    requested_names = [str(name) for name in player_names]
+    requested_order = {name: index for index, name in enumerate(requested_names)}
+
+    audit = board.loc[
+        board["player_name_clean"].astype(str).isin(requested_names)
+    ].copy()
+
+    if audit.empty:
+        return pd.DataFrame(columns=PROJECTION_AUDIT_COLUMNS)
+
+    for column in PROJECTION_AUDIT_COLUMNS:
+        if column not in audit.columns and column not in {
+            "projection_change_from_baseline",
+            "late_singleton_tier",
+        }:
+            audit[column] = pd.NA
+
+    baseline = pd.to_numeric(audit["baseline_projection"], errors="coerce")
+    projected = pd.to_numeric(audit["projected_points"], errors="coerce")
+    audit["projection_change_from_baseline"] = (projected - baseline).round(2)
+
+    tier = pd.to_numeric(audit["tier"], errors="coerce")
+    tier_size = pd.to_numeric(audit["tier_size"], errors="coerce")
+    audit["late_singleton_tier"] = (tier_size == 1) & (tier > 1)
+
+    audit["_requested_order"] = (
+        audit["player_name_clean"].astype(str).map(requested_order)
+    )
+    audit = audit.sort_values("_requested_order", kind="stable")
+
+    return audit[PROJECTION_AUDIT_COLUMNS].reset_index(drop=True)
 
 
 def _add_multipath_value_columns(audit):
@@ -304,6 +378,20 @@ def main():
             .round(2)
             .to_string(index=False)
         )
+
+    projection_audit = build_projection_component_audit(
+        board,
+        PROJECTION_AUDIT_PLAYERS,
+    )
+
+    print("\n============================================")
+    print("EDGEIQ PROJECTION + SINGLETON TIER AUDIT")
+    print("============================================\n")
+
+    if projection_audit.empty:
+        print("No requested projection-audit players were found in the current board.")
+    else:
+        print(projection_audit.round(2).to_string(index=False))
 
 
 if __name__ == "__main__":
