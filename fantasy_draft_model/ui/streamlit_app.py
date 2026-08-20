@@ -2,6 +2,7 @@
 
 from fantasy_draft_model.draft_assistant import build_draft_assistant
 from fantasy_draft_model.live_war_room import (
+    initialize_war_room,
     load_war_room_state,
     record_manual_pick,
     undo_last_manual_pick,
@@ -15,9 +16,17 @@ from fantasy_draft_model.ui.draft_war_room import (
 POSITION_OPTIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DEF"]
 
 
+def load_or_initialize_war_room_state():
+    """Load persisted War Room state, initializing Drunk Sundays on first launch."""
+    try:
+        return load_war_room_state()
+    except FileNotFoundError:
+        return initialize_war_room("drunk_sundays")
+
+
 def build_live_view(search_text="", position=None):
     """Build the read-only War Room snapshot used by the Streamlit shell."""
-    state = load_war_room_state()
+    state = load_or_initialize_war_room_state()
     context = build_live_draft_context(state)
     board = build_draft_assistant(
         state["league_key"],
