@@ -307,6 +307,64 @@ def test_start_partial_initialization_failure_cannot_write_authoritative_path(
     assert {candidate: candidate.read_bytes() for candidate in before} == before
 
 
+def test_start_has_no_fallible_reload_after_canonical_replacement(tmp_path, monkeypatch):
+    path = tmp_path / "war-room.json"
+    archive_root = tmp_path / "archives"
+    save_validated_state(_schema_two_state(), path)
+    save_validated_state(_schema_two_state(draft_id="newer-old-state"), path)
+    before = {
+        path: path.read_bytes(),
+        state_backup_path(path): state_backup_path(path).read_bytes(),
+    }
+
+    def fail_reload(*args, **kwargs):
+        raise RuntimeError("injected post-write reload failure")
+
+    monkeypatch.setattr(lifecycle, "load_war_room_state", fail_reload)
+
+    try:
+        fresh = start_new_draft("drunk_sundays", path, archive_root)
+    except RuntimeError:
+        assert {candidate: candidate.read_bytes() for candidate in before} == before
+        raise
+
+    assert fresh["schema_version"] == 2
+    assert fresh["manual_picks"] == []
+
+
+def test_start_has_no_late_keeper_load_after_canonical_replacement(tmp_path):
+    path = tmp_path / "war-room.json"
+    archive_root = tmp_path / "archives"
+    save_validated_state(_schema_two_state(), path)
+    save_validated_state(_schema_two_state(draft_id="newer-old-state"), path)
+    before = {
+        path: path.read_bytes(),
+        state_backup_path(path): state_backup_path(path).read_bytes(),
+    }
+    load_count = 0
+
+    def fail_third_keeper_load(league_name):
+        nonlocal load_count
+        load_count += 1
+        if load_count == 3:
+            raise RuntimeError("injected late keeper-loader failure")
+        return load_keepers(league_name)
+
+    try:
+        fresh = start_new_draft(
+            "drunk_sundays",
+            path,
+            archive_root,
+            keeper_loader=fail_third_keeper_load,
+        )
+    except RuntimeError:
+        assert {candidate: candidate.read_bytes() for candidate in before} == before
+        raise
+
+    assert load_count == 2
+    assert fresh["keeper_reservations"] == _canonical_keepers()
+
+
 def test_resume_valid_schema_two_never_initializes_or_rewrites(tmp_path, monkeypatch):
     path = tmp_path / "war-room.json"
     state = _schema_two_state()
@@ -358,6 +416,65 @@ def test_legacy_inspection_is_read_only_and_explicit_resume_archives_then_migrat
         entry for entry in manifest["artifacts"] if entry["role"] == "authoritative"
     )
     assert Path(authoritative_entry["archive_path"]).read_bytes() == before
+
+
+def test_legacy_resume_has_no_fallible_reload_after_canonical_replacement(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "war-room.json"
+    legacy = _schema_one_rehearsal_state()
+    _write_json(path, legacy)
+    _write_json(state_backup_path(path), _schema_two_state(draft_id="backup-state"))
+    before = {
+        path: path.read_bytes(),
+        state_backup_path(path): state_backup_path(path).read_bytes(),
+    }
+
+    def fail_reload(*args, **kwargs):
+        raise RuntimeError("injected post-write reload failure")
+
+    monkeypatch.setattr(lifecycle, "load_war_room_state", fail_reload)
+
+    try:
+        migrated = resume_existing_draft(path)
+    except RuntimeError:
+        assert {candidate: candidate.read_bytes() for candidate in before} == before
+        raise
+
+    assert migrated["schema_version"] == 2
+    assert migrated["manual_picks"] == legacy["manual_picks"]
+
+
+def test_legacy_resume_has_no_late_keeper_load_after_canonical_replacement(tmp_path):
+    path = tmp_path / "war-room.json"
+    legacy = _schema_one_rehearsal_state()
+    _write_json(path, legacy)
+    _write_json(state_backup_path(path), _schema_two_state(draft_id="backup-state"))
+    before = {
+        path: path.read_bytes(),
+        state_backup_path(path): state_backup_path(path).read_bytes(),
+    }
+    load_count = 0
+
+    def fail_fourth_keeper_load(league_name):
+        nonlocal load_count
+        load_count += 1
+        if load_count == 4:
+            raise RuntimeError("injected late keeper-loader failure")
+        return load_keepers(league_name)
+
+    try:
+        migrated = resume_existing_draft(
+            path,
+            keeper_loader=fail_fourth_keeper_load,
+        )
+    except RuntimeError:
+        assert {candidate: candidate.read_bytes() for candidate in before} == before
+        raise
+
+    assert load_count == 3
+    assert migrated["keeper_reservations"] == legacy["keeper_reservations"]
 
 
 def test_explicit_start_archives_rehearsal_shape_and_uses_current_keeper_data(tmp_path):

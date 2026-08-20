@@ -345,9 +345,7 @@ def start_new_draft(
         state_saver=lambda state, _path: copy.deepcopy(state),
     )
     _validate_with_current_keepers(candidate, keeper_loader)
-    _save_after_verified_archive(candidate, state_path)
-    loaded = load_war_room_state(state_path)
-    return _validate_with_current_keepers(loaded, keeper_loader)
+    return _save_after_verified_archive(candidate, state_path)
 
 
 def _default_archive_root(state_path):
@@ -397,14 +395,12 @@ def resume_existing_draft(
         }
     )
     _validate_with_current_keepers(migrated, keeper_loader)
-    atomic_write_json(
+    return atomic_write_json(
         state_path,
         migrated,
         validate_war_room_state,
         allow_invalid_authoritative=True,
     )
-    loaded = load_war_room_state(state_path)
-    return _validate_with_current_keepers(loaded, keeper_loader)
 
 
 def recover_existing_draft(state_path, archive_root, *, keeper_loader=load_keepers):
