@@ -80,6 +80,7 @@ def atomic_write_json(
     *,
     replace_func=None,
     fsync_func=os.fsync,
+    allow_invalid_authoritative=False,
 ):
     """Atomically persist validated JSON while rotating a valid old state."""
     path = Path(path)
@@ -89,6 +90,18 @@ def atomic_write_json(
     created_temporaries = []
 
     try:
+        current_state = _load_validated_json(path, validator)
+    except FileNotFoundError:
+        current_state = None
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+        if not allow_invalid_authoritative:
+            raise StateLoadError(
+                inspect_state_files(path),
+                "Routine save refused to replace invalid authoritative state",
+            ) from error
+        current_state = None
+
+    try:
         candidate = _write_validated_temporary(
             path,
             candidate_json,
@@ -96,11 +109,6 @@ def atomic_write_json(
             fsync_func,
         )
         created_temporaries.append(candidate)
-
-        try:
-            current_state = _load_validated_json(path, validator)
-        except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError, ValueError):
-            current_state = None
 
         if current_state is not None:
             backup_path = state_backup_path(path)
@@ -112,10 +120,12 @@ def atomic_write_json(
                 fsync_func,
             )
             created_temporaries.append(backup_candidate)
-            replace_func(backup_candidate, backup_path)
 
         replace_func(candidate, path)
-        return _load_validated_json(path, validator)
+        authoritative_state = _load_validated_json(path, validator)
+        if current_state is not None:
+            replace_func(backup_candidate, backup_path)
+        return authoritative_state
     finally:
         for temporary in created_temporaries:
             try:
@@ -237,6 +247,7 @@ def recover_state_from_backup(
         validate_war_room_state,
         replace_func=replace_func,
         fsync_func=fsync_func,
+        allow_invalid_authoritative=True,
     )
     return _load_validated_json(
         inspection.authoritative_path,

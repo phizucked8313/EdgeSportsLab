@@ -7,6 +7,7 @@ import pytest
 
 import fantasy_draft_model.state_persistence as persistence
 from fantasy_draft_model.state_persistence import (
+    StateLoadError,
     atomic_write_json,
     save_validated_state,
     state_backup_path,
@@ -60,13 +61,20 @@ def test_successive_saves_rotate_last_known_good_state_to_backup(tmp_path):
 
 def test_authoritative_bytes_survive_failure_before_replacement(tmp_path):
     path = tmp_path / "war-room.json"
+    backup = state_backup_path(path)
     state_one = _canonical_state()
     state_two = _canonical_state(
         draft_id="draft-two",
         updated_at="2026-08-20T12:01:00+00:00",
     )
+    state_three = _canonical_state(
+        draft_id="draft-three",
+        updated_at="2026-08-20T12:02:00+00:00",
+    )
     save_validated_state(state_one, path)
+    save_validated_state(state_two, path)
     authoritative_before = path.read_bytes()
+    backup_before = backup.read_bytes()
     fsynced = []
 
     def fail_authoritative_replace(source, target):
@@ -81,13 +89,14 @@ def test_authoritative_bytes_survive_failure_before_replacement(tmp_path):
     with pytest.raises(OSError, match="injected authoritative"):
         atomic_write_json(
             path,
-            state_two,
+            state_three,
             validate_war_room_state,
             replace_func=fail_authoritative_replace,
             fsync_func=recording_fsync,
         )
 
     assert path.read_bytes() == authoritative_before
+    assert backup.read_bytes() == backup_before
     assert fsynced
     assert not list(tmp_path.glob("*.tmp-*"))
 
@@ -118,6 +127,44 @@ def test_candidate_validation_failure_changes_neither_state_file(tmp_path):
     assert path.read_bytes() == authoritative_before
     assert state_backup_path(path).read_bytes() == backup_before
     assert fsynced == []
+    assert not list(tmp_path.glob("*.tmp-*"))
+
+
+@pytest.mark.parametrize(
+    "authoritative_bytes",
+    [
+        b"{malformed",
+        json.dumps({**_canonical_state(), "current_pick": 0}).encode("utf-8"),
+    ],
+    ids=["malformed-json", "invalid-state"],
+)
+def test_routine_save_refuses_to_replace_corrupt_authoritative_state(
+    tmp_path,
+    authoritative_bytes,
+):
+    path = tmp_path / "war-room.json"
+    backup = state_backup_path(path)
+    state_one = _canonical_state()
+    state_two = _canonical_state(
+        draft_id="draft-two",
+        updated_at="2026-08-20T12:01:00+00:00",
+    )
+    candidate = _canonical_state(
+        draft_id="draft-three",
+        updated_at="2026-08-20T12:02:00+00:00",
+    )
+    save_validated_state(state_one, path)
+    save_validated_state(state_two, path)
+    path.write_bytes(authoritative_bytes)
+    authoritative_before = path.read_bytes()
+    backup_before = backup.read_bytes()
+
+    with pytest.raises(StateLoadError) as raised:
+        save_validated_state(candidate, path)
+
+    assert raised.value.inspection.authoritative_error is not None
+    assert path.read_bytes() == authoritative_before
+    assert backup.read_bytes() == backup_before
     assert not list(tmp_path.glob("*.tmp-*"))
 
 
