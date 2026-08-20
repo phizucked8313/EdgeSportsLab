@@ -1,4 +1,6 @@
 from dataclasses import FrozenInstanceError
+from importlib import import_module
+from importlib.util import find_spec
 
 import pytest
 
@@ -166,3 +168,39 @@ def test_renderers_escape_fixture_provided_html():
 
     assert "<script>" not in html
     assert "&lt;script&gt;alert('x')&lt;/script&gt;" in html
+
+
+def test_preview_css_scopes_the_dark_responsive_draft_night_system():
+    """Removing the scoped responsive visual system must fail this contract."""
+    module_name = "prototypes.draft_night_preview.styles"
+    assert find_spec(module_name) is not None, "styles module must expose preview_css()"
+    css = import_module(module_name).preview_css()
+
+    for rule in (
+        ".edgeiq-preview",
+        "--edgeiq-bg:",
+        "--edgeiq-text:",
+        "--edgeiq-muted:",
+        "font-variant-numeric: tabular-nums",
+        ".available-players",
+        "overflow: auto",
+        ".available-players thead th",
+        "position: sticky",
+        "top: 0",
+        ".draft-header",
+        ".primary-grid",
+        ".right-rail",
+        ".insight-grid",
+        ".recommendation-smash",
+        ".availability-keeper",
+        ".availability-unavailable",
+        "@media (max-width: 1450px)",
+        "@media (min-width: 1800px)",
+        "@media (prefers-reduced-motion: reduce)",
+        "animation: none !important",
+        "transition: none !important",
+    ):
+        assert rule in css
+
+    assert "text-overflow: ellipsis" not in css
+    assert "line-clamp" not in css
