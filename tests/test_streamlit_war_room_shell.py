@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from fantasy_draft_model.ui import streamlit_app
 
@@ -240,3 +241,73 @@ def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
     assert captured["position"] == "RB"
     assert captured["st"] is fake_st
     assert captured["snapshot"] is snapshot
+
+
+def test_record_selected_player_uses_fresh_state_and_core_recorder(monkeypatch):
+    state = _state()
+    available = pd.DataFrame(
+        [
+            {
+                "player_name_clean": "Beta RB",
+                "position": "RB",
+                "team": "DET",
+                "draft_rank": 2,
+            }
+        ]
+    )
+    captured = {}
+
+    monkeypatch.setattr(streamlit_app, "load_war_room_state", lambda: state)
+
+    def fake_record_manual_pick(supplied_state, player_row):
+        captured["state"] = supplied_state
+        captured["player_name"] = player_row["player_name_clean"]
+        return {"player_name": player_row["player_name_clean"]}
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "record_manual_pick",
+        fake_record_manual_pick,
+        raising=False,
+    )
+
+    result = streamlit_app.record_selected_player(available, "Beta RB")
+
+    assert captured == {
+        "state": state,
+        "player_name": "Beta RB",
+    }
+    assert result == {"player_name": "Beta RB"}
+
+
+def test_record_selected_player_rejects_missing_player():
+    available = pd.DataFrame(
+        [{"player_name_clean": "Beta RB", "position": "RB", "team": "DET"}]
+    )
+
+    with pytest.raises(ValueError, match="not available"):
+        streamlit_app.record_selected_player(available, "Missing WR")
+
+
+def test_undo_latest_pick_uses_fresh_state_and_core_undo(monkeypatch):
+    state = _state()
+    removed = {"player_name": "Beta RB", "pick_number": 10}
+    captured = {}
+
+    monkeypatch.setattr(streamlit_app, "load_war_room_state", lambda: state)
+
+    def fake_undo(supplied_state):
+        captured["state"] = supplied_state
+        return removed
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "undo_last_manual_pick",
+        fake_undo,
+        raising=False,
+    )
+
+    result = streamlit_app.undo_latest_pick()
+
+    assert captured["state"] is state
+    assert result is removed
