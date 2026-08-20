@@ -83,6 +83,13 @@ def test_available_players_emits_columns_recommendations_and_statuses():
     assert 'class="player-row availability-unavailable"' in html
 
 
+def test_available_players_provides_enough_rows_for_board_scrolling():
+    """The live board must overflow its bounded viewport so sticky headers are usable."""
+    html = render_available_players(live_fixture().available_players)
+
+    assert html.count("<tr") >= 16
+
+
 def test_roster_and_history_show_required_draft_context():
     fixture = live_fixture()
 
