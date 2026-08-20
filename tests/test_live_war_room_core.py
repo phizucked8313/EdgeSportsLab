@@ -56,6 +56,37 @@ def _player_row(name="Test Player"):
     )
 
 
+def _seed_accounted_manual_picks(war_room, state, current_pick):
+    draft_order = war_room.resolve_league("drunk_sundays")["draft_order"]
+    reserved = {
+        int(reservation["pick_number"])
+        for reservation in state["keeper_reservations"]
+    }
+    state["manual_picks"] = []
+    state["processed_keeper_picks"] = []
+    for pick_number in range(1, current_pick):
+        if pick_number in reserved:
+            state["processed_keeper_picks"].append(pick_number)
+            continue
+        round_number = ((pick_number - 1) // 12) + 1
+        pick_in_round = ((pick_number - 1) % 12) + 1
+        draft_slot = pick_in_round if round_number % 2 else 13 - pick_in_round
+        state["manual_picks"].append(
+            {
+                "player_name": f"Seed Player {pick_number}",
+                "position": "WR",
+                "nfl_team": "CLE",
+                "bye_week": 10,
+                "draft_rank": pick_number,
+                "fantasy_team": draft_order[draft_slot - 1],
+                "pick_number": pick_number,
+                "round": round_number,
+                "draft_slot": draft_slot,
+            }
+        )
+    state["current_pick"] = current_pick
+
+
 def test_canonical_league_profile_contains_user_team():
     drunk = get_league("Drunk Sundays")
     somewhat = get_league("Somewhat Related")
@@ -237,7 +268,7 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 16
+    _seed_accounted_manual_picks(war_room, state, 16)
 
     war_room.record_manual_pick(
         state,
@@ -246,8 +277,8 @@ def test_record_manual_pick_assigns_team_metadata_and_persists(
     )
 
     assert state["current_pick"] == 17
-    assert len(state["manual_picks"]) == 1
-    pick = state["manual_picks"][0]
+    assert len(state["manual_picks"]) == 16
+    pick = state["manual_picks"][-1]
     assert pick["player_name"] == "Manual Test WR"
     assert pick["position"] == "WR"
     assert pick["nfl_team"] == "CLE"
@@ -404,7 +435,8 @@ def test_undo_last_manual_pick_restores_pick_and_persists(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 16
+    _seed_accounted_manual_picks(war_room, state, 16)
+    manual_picks_before = copy.deepcopy(state["manual_picks"])
     war_room.record_manual_pick(
         state,
         _player_row("Undo Test WR"),
@@ -417,7 +449,7 @@ def test_undo_last_manual_pick_restores_pick_and_persists(
     )
 
     assert removed["player_name"] == "Undo Test WR"
-    assert state["manual_picks"] == []
+    assert state["manual_picks"] == manual_picks_before
     assert state["current_pick"] == 16
     assert war_room.load_war_room_state(state_path) == state
 
@@ -437,7 +469,7 @@ def test_undo_last_manual_pick_reopens_crossed_keeper_slot(
         "drunk_sundays",
         state_path=state_path,
     )
-    state["current_pick"] = 32
+    _seed_accounted_manual_picks(war_room, state, 32)
 
     war_room.record_manual_pick(
         state,

@@ -1,10 +1,14 @@
 """EdgeIQ live War Room state foundation."""
 
-import json
 from pathlib import Path
 
 from fantasy_draft_model.keepers import load_keepers
 from fantasy_draft_model.models.league_profile import LEAGUES
+from fantasy_draft_model.state_persistence import (
+    StateLoadError,
+    inspect_state_files,
+    save_validated_state,
+)
 from fantasy_draft_model.war_room_state import (
     DraftCompleteError,
     derive_draft_status,
@@ -32,20 +36,16 @@ def resolve_league(league_identifier):
 
 
 def save_war_room_state(state, state_path=DEFAULT_STATE_PATH):
-    """Persist War Room state as JSON."""
-    path = Path(state_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(state, indent=2),
-        encoding="utf-8",
-    )
+    """Persist validated War Room state atomically."""
+    return save_validated_state(state, state_path)
 
 
 def load_war_room_state(state_path=DEFAULT_STATE_PATH):
-    """Load previously persisted War Room state."""
-    path = Path(state_path)
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    """Load only a valid authoritative War Room state."""
+    inspection = inspect_state_files(state_path)
+    if inspection.source != "authoritative":
+        raise StateLoadError(inspection)
+    return inspection.state
 
 
 def _normalize_team_name(value):
