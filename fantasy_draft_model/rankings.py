@@ -97,11 +97,11 @@ def calculate_draft_score(df: pd.DataFrame) -> pd.DataFrame:
     df["tier_scarcity_score"] = 0.0
 
     df.loc[
-        df["tier_status"] == "LAST PLAYER IN TIER",
+        df["tier_status"].isin(["ELITE SOLO TIER", "LAST PLAYER IN TIER"]),
         "tier_scarcity_score",
     ] = 100
     df.loc[
-        df["tier_status"] == "TIER ALMOST GONE",
+        df["tier_status"].isin(["SMALL TIER", "TIER ALMOST GONE"]),
         "tier_scarcity_score",
     ] = 80
     df.loc[
