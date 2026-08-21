@@ -1,5 +1,6 @@
 import pandas as pd
 
+import fantasy_draft_model.draft_assistant as draft_assistant
 import fantasy_draft_model.rankings as rankings
 from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
 
@@ -62,3 +63,72 @@ def test_missing_replacement_level_ranks_reduce_remaining_position_demand():
     assert depleted.loc["WR", "position_remaining_replacement_demand"].iloc[0] == 2
     assert depleted.loc["QB", "position_remaining_replacement_demand"] == 1
     assert depleted.loc["TE", "position_remaining_replacement_demand"] == 1
+
+
+def test_live_assistant_applies_available_pool_depletion_before_scarcity(monkeypatch):
+    board = pd.DataFrame(
+        [
+            {
+                "player_name_clean": "RB 3",
+                "position": "RB",
+                "position_rank": 3,
+                "position_replacement_rank": 4,
+                "position_remaining_replacement_demand": 4,
+                "draft_rank": 3,
+                "projected_points": 250.0,
+            },
+            {
+                "player_name_clean": "RB 4",
+                "position": "RB",
+                "position_rank": 4,
+                "position_replacement_rank": 4,
+                "position_remaining_replacement_demand": 4,
+                "draft_rank": 4,
+                "projected_points": 240.0,
+            },
+            {
+                "player_name_clean": "QB 1",
+                "position": "QB",
+                "position_rank": 1,
+                "position_replacement_rank": 1,
+                "position_remaining_replacement_demand": 1,
+                "draft_rank": 1,
+                "projected_points": 400.0,
+            },
+        ]
+    )
+    observed = {}
+
+    def inspect_scarcity(frame):
+        rb = frame.loc[frame["position"] == "RB"].iloc[0]
+        observed["rb_remaining"] = rb["position_remaining_replacement_demand"]
+        observed["rb_unavailable"] = rb.get("position_unavailable_demand_count")
+        result = frame.copy()
+        result["tier_scarcity_score"] = 0.0
+        return result
+
+    def add_brain_identity(frame, _context):
+        result = frame.copy()
+        result["brain_score"] = range(len(result), 0, -1)
+        result["brain_recommendation"] = "WAIT"
+        result["brain_reasons"] = [[] for _ in range(len(result))]
+        result["brain_warnings"] = [[] for _ in range(len(result))]
+        return result
+
+    monkeypatch.setattr(draft_assistant, "add_live_tier_scarcity", inspect_scarcity)
+    monkeypatch.setattr(
+        draft_assistant,
+        "recalculate_live_draft_score",
+        lambda frame: frame.copy(),
+    )
+    monkeypatch.setattr(
+        draft_assistant,
+        "add_pressure_meter",
+        lambda frame: frame.copy(),
+    )
+    monkeypatch.setattr(draft_assistant, "add_draft_brain", add_brain_identity)
+
+    draft_assistant.build_draft_assistant_from_rankings(board, draft_context={})
+
+    assert observed["rb_remaining"] == 2
+    assert observed["rb_unavailable"] == 2
