@@ -26,6 +26,7 @@ from fantasy_draft_model.state_persistence import StateLoadError
 from fantasy_draft_model.war_room_state import DraftCompleteError, StateValidationError
 from fantasy_draft_model.ui.draft_war_room import (
     AVAILABLE_PLAYERS_ONLY_ATTR,
+    build_available_player_display,
     build_live_draft_context,
     build_player_ranking_explanation,
     build_static_available_board_html,
@@ -206,9 +207,10 @@ def render_war_room_snapshot(st, snapshot):
         st.success("BLKWDW'S is on the clock")
 
     st.subheader("Available Players")
-    st.markdown(
-        build_static_available_board_html(snapshot["filtered_available"]),
-        unsafe_allow_html=True,
+    st.dataframe(
+        build_available_player_display(snapshot["filtered_available"]),
+        use_container_width=True,
+        hide_index=True,
     )
 
     st.subheader("Your Roster")
