@@ -132,4 +132,46 @@ jobs:
           diagnostic = base[base["player_name_clean"].isin(names)][diagnostic_columns]
           print("\nVETERAN PROJECTION INPUTS")
           print(diagnostic.round(2).to_string(index=False))
+
+          rb_depth = depth[
+              (depth["pos_abb"] == "RB")
+              & (pd.to_numeric(depth["pos_rank"], errors="coerce") == 1)
+          ][["gsis_id", "team", "pos_rank", "edgeiq_role"]].copy()
+          rb1 = base.merge(
+              rb_depth,
+              left_on="player_id",
+              right_on="gsis_id",
+              how="inner",
+              suffixes=("", "_depth"),
+          )
+          rb1 = rb1[(rb1["position"] == "RB") & (rb1["games_played"] > 0)].copy()
+          rb1["touches_per_game"] = (
+              pd.to_numeric(rb1.get("carries", 0), errors="coerce").fillna(0)
+              + pd.to_numeric(rb1.get("receptions", 0), errors="coerce").fillna(0)
+          ) / pd.to_numeric(rb1["games_played"], errors="coerce").replace(0, pd.NA)
+          prior = rb1["prior_roster_team"].fillna("").astype(str).str.strip().str.upper()
+          current = rb1["team"].fillna("").astype(str).str.strip().str.upper()
+          rb1["changed_team"] = prior.ne("") & current.ne("") & prior.ne(current)
+
+          metrics = [
+              "custom_points_per_game",
+              "carries_per_game",
+              "targets_per_game",
+              "touches_per_game",
+              "opportunity_score",
+          ]
+          print("\nCURRENT RB1 HISTORICAL-WORKLOAD QUANTILES")
+          print(rb1[metrics].quantile([0.25, 0.5, 0.75]).round(2).to_string())
+          print("\nCURRENT RB1 TEAM CHANGES")
+          changed_columns = [
+              "player_name_clean", "prior_roster_team", "team",
+              "custom_points_per_game", "carries_per_game", "targets_per_game",
+              "touches_per_game", "opportunity_score", "projected_points",
+          ]
+          print(
+              rb1.loc[rb1["changed_team"], changed_columns]
+              .sort_values("projected_points", ascending=False)
+              .round(2)
+              .to_string(index=False)
+          )
           PY
