@@ -82,6 +82,18 @@ def test_projection_engine_uses_normalized_current_injury_loader():
     assert "integrations.injury_history_loader" not in source
 
 
+def test_projection_engine_applies_verified_injury_overrides_before_penalty():
+    source = Path(
+        "fantasy_draft_model/engines/projection_engine.py"
+    ).read_text(encoding="utf-8")
+
+    assert "current_injury_overrides" in source
+    assert "attach_current_injury_overrides" in source
+    attach_index = source.index("attach_current_injury_overrides(")
+    penalty_index = source.index("apply_current_injury_projection_penalty(df)")
+    assert attach_index < penalty_index
+
+
 def test_roster_upstream_failure_falls_back_through_rankings_coordinator(tmp_path):
     paths = {
         "data_path": tmp_path / "rankings.csv",
