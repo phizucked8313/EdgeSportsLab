@@ -259,10 +259,11 @@ def test_render_war_room_snapshot_shows_context_and_live_panels():
         "Your Roster",
         "Recent Draft History",
     ]
-    assert len(fake_st.markdowns) == 1
-    assert "Beta RB" in fake_st.markdowns[0][0]
-    assert fake_st.markdowns[0][1]["unsafe_allow_html"] is True
-    assert fake_st.dataframes == [roster, history]
+    assert fake_st.markdowns == []
+    assert len(fake_st.dataframes) == 3
+    assert fake_st.dataframes[0]["player_name_clean"].tolist() == ["Beta RB"]
+    assert fake_st.dataframes[1] is roster
+    assert fake_st.dataframes[2] is history
 
 
 def test_run_war_room_ui_forwards_filters_and_renders_snapshot(monkeypatch):
