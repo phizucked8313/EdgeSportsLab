@@ -25,6 +25,21 @@ def _supplemental_mask(board: pd.DataFrame) -> pd.Series:
     return values.fillna(False).astype(bool)
 
 
+def _restore_frozen_rank_order(board: pd.DataFrame) -> pd.DataFrame:
+    """Keep the immutable Top 300 order authoritative after live overlays."""
+    ordered = board.copy()
+    ordered["_frozen_order"] = pd.to_numeric(
+        ordered["draft_rank"], errors="coerce"
+    )
+    ordered = ordered.sort_values(
+        ["_frozen_order", "player_name_clean"],
+        ascending=[True, True],
+        na_position="last",
+        kind="stable",
+    )
+    return ordered.drop(columns="_frozen_order").reset_index(drop=True)
+
+
 def build_production_live_view(
     *,
     search_text="",
@@ -47,6 +62,7 @@ def build_production_live_view(
         ranked_available,
         draft_context=context,
     )
+    ranked_board = _restore_frozen_rank_order(ranked_board)
     board = pd.concat(
         [ranked_board, supplemental_available],
         ignore_index=True,
