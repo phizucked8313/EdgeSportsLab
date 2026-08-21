@@ -1,10 +1,12 @@
 import pandas as pd
 
+import fantasy_draft_model.draft_assistant as draft_assistant
 from fantasy_draft_model.rankings import (
     add_keeper_depletion_metadata,
     add_position_demand_metadata,
 )
 from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
+from fantasy_draft_model.ui.draft_war_room import build_keeper_position_counts
 
 
 REPLACEMENT_RANKS = {"QB": 12, "RB": 34, "WR": 38, "TE": 12}
@@ -99,3 +101,62 @@ def test_available_supply_scarcity_promotes_depleted_rb_wr_over_one_start_qb_te(
     assert result.loc["Top WR", "tier_scarcity_score"] >= 65.0
     assert result.loc["Top QB", "tier_scarcity_score"] <= 60.0
     assert result.loc["Top TE", "tier_scarcity_score"] <= 65.0
+
+
+def test_keeper_position_counts_are_derived_from_actual_reservations_and_rankings():
+    rankings = pd.DataFrame(
+        [
+            {"player_name_clean": "Bijan Robinson", "position": "RB"},
+            {"player_name_clean": "Jahmyr Gibbs", "position": "RB"},
+            {"player_name_clean": "Justin Jefferson", "position": "WR"},
+            {"player_name_clean": "Brock Bowers", "position": "TE"},
+        ]
+    )
+    state = {
+        "keeper_reservations": [
+            {"player_name": "Bijan Robinson"},
+            {"player_name": "Jahmyr Gibbs"},
+            {"player_name": "Justin Jefferson"},
+            {"player_name": "Brock Bowers"},
+        ]
+    }
+
+    assert build_keeper_position_counts(rankings, state) == {
+        "QB": 0,
+        "RB": 2,
+        "WR": 1,
+        "TE": 1,
+    }
+
+
+def test_draft_assistant_applies_keeper_depletion_before_live_scarcity(monkeypatch):
+    board = add_position_demand_metadata(_available_board(), REPLACEMENT_RANKS)
+    board["draft_rank"] = range(1, len(board) + 1)
+    observed = {"keeper_metadata_seen": False}
+
+    def inspect_live_scarcity(df):
+        observed["keeper_metadata_seen"] = "keeper_depletion_multiplier" in df.columns
+        assert df.loc[df["position"] == "RB", "position_keeper_count"].iloc[0] == 12
+        result = df.copy()
+        result["tier_scarcity_score"] = 0.0
+        return result
+
+    def add_brain_identity(df, _context):
+        result = df.copy()
+        result["brain_score"] = range(len(result), 0, -1)
+        result["brain_recommendation"] = "WAIT"
+        result["brain_reasons"] = [[] for _ in range(len(result))]
+        result["brain_warnings"] = [[] for _ in range(len(result))]
+        return result
+
+    monkeypatch.setattr(draft_assistant, "add_live_tier_scarcity", inspect_live_scarcity)
+    monkeypatch.setattr(draft_assistant, "recalculate_live_draft_score", lambda df: df.copy())
+    monkeypatch.setattr(draft_assistant, "add_pressure_meter", lambda df: df.copy())
+    monkeypatch.setattr(draft_assistant, "add_draft_brain", add_brain_identity)
+
+    draft_assistant.build_draft_assistant_from_rankings(
+        board,
+        draft_context={"keeper_position_counts": KEEPER_COUNTS},
+    )
+
+    assert observed["keeper_metadata_seen"] is True
