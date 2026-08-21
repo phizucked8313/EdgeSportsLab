@@ -81,7 +81,7 @@ def test_special_teams_rows_are_searchable_without_fake_frozen_ranks():
     ).tolist() == list(range(1, 13))
 
 
-def test_live_view_scores_only_frozen_rows_and_keeps_special_teams_available(monkeypatch):
+def test_live_view_scores_only_frozen_rows_and_restores_frozen_rank_order(monkeypatch):
     state = {
         "league_name": "Drunk Sundays",
         "league_key": "drunk_sundays",
@@ -111,8 +111,8 @@ def test_live_view_scores_only_frozen_rows_and_keeps_special_teams_available(mon
 
     def fake_assistant(rankings, draft_context=None):
         captured["positions"] = set(rankings["position"])
-        result = rankings.copy()
-        result["brain_score"] = 50.0
+        result = rankings.copy().iloc[::-1].reset_index(drop=True)
+        result["brain_score"] = range(len(result))
         return result
 
     monkeypatch.setattr(
@@ -133,6 +133,10 @@ def test_live_view_scores_only_frozen_rows_and_keeps_special_teams_available(mon
     }
     supplemental = snapshot["available"]["is_supplemental"].fillna(False).astype(bool)
     assert snapshot["available"].loc[supplemental, "brain_score"].isna().all()
+    frozen_live = snapshot["available"].loc[~supplemental]
+    assert frozen_live["draft_rank"].tolist() == sorted(
+        frozen_live["draft_rank"].tolist()
+    )
 
 
 def test_kicker_and_defense_record_persist_and_undo(tmp_path):
