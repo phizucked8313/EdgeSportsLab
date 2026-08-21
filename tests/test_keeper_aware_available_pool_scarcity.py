@@ -45,15 +45,17 @@ def _singleton_elite_tier(*, position, replacement_demand):
 
 
 def test_singleton_tier_scarcity_respects_league_position_demand():
-    shallow_demand = add_live_tier_scarcity(
-        _singleton_elite_tier(position="QB", replacement_demand=12)
-    )
-    deep_demand = add_live_tier_scarcity(
-        _singleton_elite_tier(position="RB", replacement_demand=36)
+    board = pd.concat(
+        [
+            _singleton_elite_tier(position="QB", replacement_demand=12),
+            _singleton_elite_tier(position="RB", replacement_demand=36),
+        ],
+        ignore_index=True,
     )
 
-    shallow_score = shallow_demand["tier_scarcity_score"].iloc[0]
-    deep_score = deep_demand["tier_scarcity_score"].iloc[0]
+    scored = add_live_tier_scarcity(board).set_index("position")
+    shallow_score = scored.loc["QB", "tier_scarcity_score"]
+    deep_score = scored.loc["RB", "tier_scarcity_score"]
 
     assert shallow_score < deep_score
     assert shallow_score < 100.0
