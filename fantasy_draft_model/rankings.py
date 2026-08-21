@@ -19,6 +19,124 @@ from fantasy_draft_model.models.schedule import get_bye_week
 
 
 # ============================================================
+# AVAILABLE-POOL REPLACEMENT METADATA
+# ============================================================
+
+def add_position_replacement_metadata(
+    df: pd.DataFrame,
+    replacement_ranks,
+) -> pd.DataFrame:
+    """Attach league replacement demand without changing player scores."""
+
+    result = df.copy()
+    positions = ("QB", "RB", "WR", "TE")
+    demand = {
+        position: max(0, int((replacement_ranks or {}).get(position, 0)))
+        for position in positions
+    }
+    position = (
+        result.get("position", pd.Series("", index=result.index))
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+    result["position_replacement_rank"] = (
+        position.map(demand).fillna(0).astype(int)
+    )
+    result["position_remaining_replacement_demand"] = result[
+        "position_replacement_rank"
+    ]
+    return result
+
+
+def infer_unavailable_position_counts(df: pd.DataFrame) -> dict[str, int]:
+    """Infer missing replacement-level players from stable position ranks."""
+
+    positions = ("QB", "RB", "WR", "TE")
+    counts = {position: 0 for position in positions}
+    if (
+        df is None
+        or df.empty
+        or "position" not in df.columns
+        or "position_rank" not in df.columns
+        or "position_replacement_rank" not in df.columns
+    ):
+        return counts
+
+    normalized_position = (
+        df["position"].astype(str).str.strip().str.upper()
+    )
+    for position in positions:
+        position_rows = df.loc[normalized_position == position]
+        if position_rows.empty:
+            continue
+
+        replacement_values = pd.to_numeric(
+            position_rows["position_replacement_rank"],
+            errors="coerce",
+        ).dropna()
+        if replacement_values.empty:
+            continue
+        replacement_rank = max(0, int(replacement_values.max()))
+        if replacement_rank <= 0:
+            continue
+
+        available_ranks = pd.to_numeric(
+            position_rows["position_rank"],
+            errors="coerce",
+        ).dropna()
+        available_inside_demand = available_ranks[
+            available_ranks.between(1, replacement_rank)
+        ].astype(int).nunique()
+        counts[position] = max(
+            0,
+            replacement_rank - int(available_inside_demand),
+        )
+
+    return counts
+
+
+def add_available_pool_depletion_metadata(
+    df: pd.DataFrame,
+    unavailable_counts,
+) -> pd.DataFrame:
+    """Reduce remaining positional demand by unavailable replacement players."""
+
+    result = df.copy()
+    positions = ("QB", "RB", "WR", "TE")
+    normalized_counts = {
+        position: max(0, int((unavailable_counts or {}).get(position, 0)))
+        for position in positions
+    }
+    position = (
+        result.get("position", pd.Series("", index=result.index))
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+    result["position_unavailable_demand_count"] = (
+        position.map(normalized_counts).fillna(0).astype(int)
+    )
+
+    replacement = pd.to_numeric(
+        result.get(
+            "position_replacement_rank",
+            pd.Series(0.0, index=result.index),
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    unavailable = pd.to_numeric(
+        result["position_unavailable_demand_count"],
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    unavailable = pd.concat([unavailable, replacement], axis=1).min(axis=1)
+    result["position_remaining_replacement_demand"] = (
+        replacement - unavailable
+    ).clip(lower=0.0).astype(int)
+    return result
+
+
+# ============================================================
 # VORP NORMALIZATION
 # ============================================================
 
