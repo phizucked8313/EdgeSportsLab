@@ -31,11 +31,12 @@ def add_position_demand_metadata(
     min_multiplier: float = 0.70,
     max_multiplier: float = 1.25,
 ) -> pd.DataFrame:
-    """Add a damped league-demand multiplier for positional scarcity.
+    """Add league-demand metadata for positional scarcity.
 
-    Replacement demand is normalized to the mean active QB/RB/WR/TE
-    replacement rank and square-root damped so lineup demand informs
-    scarcity without becoming a hard positional bonus or ban.
+    The existing square-root multiplier remains the conservative tier signal.
+    A second linear multiplier is retained for the available-supply signal so
+    one-start QB/TE demand does not receive the same scarcity leverage as the
+    much deeper RB/WR demand in FLEX leagues.
     """
 
     result = df.copy()
@@ -65,13 +66,84 @@ def add_position_demand_metadata(
         result["position_replacement_rank"],
         errors="coerce",
     ).fillna(0.0)
-    multiplier = pd.Series(1.0, index=result.index, dtype=float)
     active = replacement > 0
+
+    multiplier = pd.Series(1.0, index=result.index, dtype=float)
     multiplier.loc[active] = (
         replacement.loc[active] / float(neutral_demand)
     ).pow(0.5)
     result["position_demand_multiplier"] = multiplier.clip(
         lower=float(min_multiplier),
+        upper=float(max_multiplier),
+    )
+
+    supply_multiplier = pd.Series(1.0, index=result.index, dtype=float)
+    supply_multiplier.loc[active] = (
+        replacement.loc[active] / float(neutral_demand)
+    )
+    result["position_supply_demand_multiplier"] = supply_multiplier.clip(
+        lower=0.50,
+        upper=float(max_multiplier),
+    )
+    return result
+
+
+def add_keeper_depletion_metadata(
+    df: pd.DataFrame,
+    keeper_counts,
+    *,
+    max_multiplier: float = 1.50,
+) -> pd.DataFrame:
+    """Attach keeper-driven remaining-demand and depletion metadata.
+
+    This is positional supply math only. It never contains player-specific
+    boosts. A position with many keepers inside its replacement-level demand
+    receives a larger depletion multiplier because fewer starter-quality
+    options remain available to the live draft room.
+    """
+
+    result = df.copy()
+    positions = ("QB", "RB", "WR", "TE")
+    normalized_counts = {
+        position: max(0, int((keeper_counts or {}).get(position, 0)))
+        for position in positions
+    }
+    position = (
+        result.get("position", pd.Series("", index=result.index))
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+    result["position_keeper_count"] = (
+        position.map(normalized_counts).fillna(0).astype(int)
+    )
+
+    replacement = pd.to_numeric(
+        result.get(
+            "position_replacement_rank",
+            pd.Series(0.0, index=result.index),
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    keeper_count = pd.to_numeric(
+        result["position_keeper_count"],
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    keeper_count = keeper_count.where(
+        replacement <= 0.0,
+        keeper_count.clip(upper=replacement),
+    )
+    remaining = (replacement - keeper_count).clip(lower=0.0)
+    result["position_remaining_replacement_demand"] = remaining.astype(int)
+
+    depletion = pd.Series(1.0, index=result.index, dtype=float)
+    active = (replacement > 0.0) & (remaining > 0.0)
+    depletion.loc[active] = (
+        replacement.loc[active] / remaining.loc[active]
+    ).pow(0.5)
+    depletion.loc[(replacement > 0.0) & (remaining <= 0.0)] = float(max_multiplier)
+    result["keeper_depletion_multiplier"] = depletion.clip(
+        lower=1.0,
         upper=float(max_multiplier),
     )
     return result
