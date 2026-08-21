@@ -1,0 +1,35 @@
+name: Temporary Demand Verification
+
+on:
+  push:
+    branches:
+      - audit-and-sortable-board
+
+jobs:
+  verify-demand-scarcity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit-and-sortable-board
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify targeted demand adjustment
+        run: python -m pytest tests/test_league_demand_scarcity_adjustment.py -q
+      - name: Verify adjacent ranking contracts
+        run: >-
+          python -m pytest
+          tests/test_position_demand_scarcity_audit.py
+          tests/test_pressure_meter_nan_safety.py
+          tests/test_numeric_tier_scarcity.py
+          tests/test_tier_signal_consistency.py
+          tests/test_live_available_scoring_order.py
+          tests/test_advanced_assistant_pipeline.py
+          tests/test_qb_1qb_economics.py
+          -q
+      - name: Verify full suite
+        run: python -m pytest -q
