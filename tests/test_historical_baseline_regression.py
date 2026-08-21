@@ -4,6 +4,7 @@ from fantasy_draft_model.engines.historical_baseline_engine import (
     add_historical_regression_metadata,
     build_multi_year_ppr_summary,
 )
+from fantasy_draft_model.engines.projection_engine import calculate_projection
 
 
 def _weekly_history():
@@ -136,3 +137,26 @@ def test_projection_baseline_can_consume_regression_multiplier_without_name_over
         * result.loc[0, "historical_regression_multiplier"]
     )
     assert round(regressed_baseline, 2) == 224.40
+
+
+def test_calculate_projection_applies_historical_regression_to_veteran_baseline():
+    current = pd.DataFrame(
+        [
+            {
+                "player_name_clean": "Veteran Up",
+                "position": "RB",
+                "custom_points_per_game": 12.0,
+                "historical_regression_multiplier": 1.10,
+                "is_rookie": False,
+                "opportunity_score": 50.0,
+                "target_regression_factor": 1.0,
+                "injury_risk_score": 0.0,
+                "manual_adjustment": 1.0,
+            }
+        ]
+    )
+
+    result = calculate_projection(current)
+
+    assert round(result.loc[0, "baseline_projection"], 2) == 224.40
+    assert round(result.loc[0, "projected_points"], 2) == 224.40
