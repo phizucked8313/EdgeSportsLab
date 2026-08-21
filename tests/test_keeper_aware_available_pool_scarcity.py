@@ -60,5 +60,5 @@ def test_missing_replacement_level_ranks_reduce_remaining_position_demand():
     assert unavailable == {"QB": 0, "RB": 2, "WR": 1, "TE": 0}
     assert depleted.loc["RB", "position_remaining_replacement_demand"].iloc[0] == 2
     assert depleted.loc["WR", "position_remaining_replacement_demand"].iloc[0] == 2
-    assert depleted.loc["QB", "position_remaining_replacement_demand"].iloc[0] == 1
-    assert depleted.loc["TE", "position_remaining_replacement_demand"].iloc[0] == 1
+    assert depleted.loc["QB", "position_remaining_replacement_demand"] == 1
+    assert depleted.loc["TE", "position_remaining_replacement_demand"] == 1
