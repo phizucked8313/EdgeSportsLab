@@ -4,7 +4,10 @@ from fantasy_draft_model.engines.historical_baseline_engine import (
     add_historical_regression_metadata,
     build_multi_year_ppr_summary,
 )
-from fantasy_draft_model.engines.projection_engine import calculate_projection
+from fantasy_draft_model.engines.projection_engine import (
+    attach_historical_regression,
+    calculate_projection,
+)
 
 
 def _weekly_history():
@@ -160,3 +163,50 @@ def test_calculate_projection_applies_historical_regression_to_veteran_baseline(
 
     assert round(result.loc[0, "baseline_projection"], 2) == 224.40
     assert round(result.loc[0, "projected_points"], 2) == 224.40
+
+
+def test_attach_historical_regression_uses_loaded_summary():
+    current = pd.DataFrame(
+        [
+            {
+                "player_id": "up",
+                "player_name_clean": "Veteran Up",
+                "position": "RB",
+                "ppr_points_per_game": 10.0,
+                "is_rookie": False,
+            }
+        ]
+    )
+    summary = build_multi_year_ppr_summary(_weekly_history())
+
+    result = attach_historical_regression(
+        current,
+        loader=lambda: summary,
+    )
+
+    assert result.loc[0, "historical_regression_multiplier"] == 1.10
+    assert result.loc[0, "historical_regression_data_status"] == "LIVE"
+    assert result.loc[0, "historical_regression_failure_reason"] == ""
+
+
+def test_attach_historical_regression_falls_back_neutral_when_loader_fails():
+    current = pd.DataFrame(
+        [
+            {
+                "player_id": "up",
+                "player_name_clean": "Veteran Up",
+                "position": "RB",
+                "ppr_points_per_game": 10.0,
+                "is_rookie": False,
+            }
+        ]
+    )
+
+    def failing_loader():
+        raise RuntimeError("historical source unavailable")
+
+    result = attach_historical_regression(current, loader=failing_loader)
+
+    assert result.loc[0, "historical_regression_multiplier"] == 1.00
+    assert result.loc[0, "historical_regression_data_status"] == "FALLBACK_NEUTRAL"
+    assert "historical source unavailable" in result.loc[0, "historical_regression_failure_reason"]
