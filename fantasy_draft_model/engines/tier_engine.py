@@ -30,6 +30,11 @@ TIER_DEPTH_FACTORS = {
     4: 0.55,
 }
 
+# Keeper/drafted-player depletion is intentionally bounded.  It can make the
+# last useful players at a position more urgent, but it cannot manufacture
+# elite value for a weak player by itself.
+POSITION_POOL_DEPLETION_WEIGHT = 0.35
+
 
 def get_tier_threshold(position, current_tier):
     base = float(POSITION_TIER_THRESHOLDS.get(position, 15))
@@ -169,10 +174,6 @@ def assign_position_tiers(df: pd.DataFrame) -> pd.DataFrame:
                 tier_thresholds.append(
                     threshold
                 )
-
-                # ------------------------------------
-                # START NEW TIER
-                # ------------------------------------
 
                 if (
                     points_drop >= threshold
@@ -339,23 +340,21 @@ def add_tier_boundary_metadata(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Score scarcity from the players currently remaining in each tier.
-    """
+    """Score live scarcity from tier cliffs and depleted replacement supply."""
 
     df = df.copy()
 
     if "tier" not in df.columns:
         df["tier"] = pd.NA
 
-    tier_values = pd.to_numeric(df["tier"], errors="coerce")
-    supported_position = (
+    position_values = (
         df.get("position", pd.Series("", index=df.index))
         .astype(str)
         .str.strip()
         .str.upper()
-        .isin(POSITION_TIER_THRESHOLDS)
     )
+    tier_values = pd.to_numeric(df["tier"], errors="coerce")
+    supported_position = position_values.isin(POSITION_TIER_THRESHOLDS)
     tierless_mask = tier_values.isna() | tier_values.le(0) | ~supported_position
     tier_values = tier_values.mask(tierless_mask).astype("Int64")
     df["tier"] = tier_values
@@ -398,9 +397,90 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         lambda tier: _tier_depth_factor(tier) if pd.notna(tier) else 0.0
     )
 
-    df["tier_scarcity_score"] = (
+    raw_scarcity = (
         depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
-    ).clip(lower=0.0, upper=100.0).round(2)
+    ).clip(lower=0.0, upper=100.0)
+    df["raw_tier_scarcity_score"] = raw_scarcity.round(2)
+
+    replacement_demand = pd.to_numeric(
+        df.get(
+            "position_replacement_rank",
+            pd.Series(0.0, index=df.index),
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    remaining_demand = pd.to_numeric(
+        df.get(
+            "position_remaining_replacement_demand",
+            replacement_demand,
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    remaining_demand = pd.concat(
+        [remaining_demand, replacement_demand],
+        axis=1,
+    ).min(axis=1)
+
+    df["position_available_rank"] = 0
+    df["position_pool_depletion_score"] = 0.0
+    depletion_signal = pd.Series(0.0, index=df.index, dtype=float)
+
+    supply_enabled = (
+        supported_position
+        & replacement_demand.gt(0.0)
+        & remaining_demand.gt(0.0)
+        & ("projected_points" in df.columns)
+    )
+    if bool(supply_enabled.any()):
+        projected_points = pd.to_numeric(
+            df["projected_points"],
+            errors="coerce",
+        ).fillna(float("-inf"))
+        available_rank = projected_points.groupby(position_values).rank(
+            method="first",
+            ascending=False,
+        )
+        df.loc[supply_enabled, "position_available_rank"] = (
+            available_rank.loc[supply_enabled].astype(int)
+        )
+
+        rank_numeric = pd.to_numeric(
+            df["position_available_rank"],
+            errors="coerce",
+        ).fillna(0.0)
+        depletion_fraction = pd.Series(0.0, index=df.index, dtype=float)
+        depletion_fraction.loc[supply_enabled] = (
+            (
+                replacement_demand.loc[supply_enabled]
+                - remaining_demand.loc[supply_enabled]
+            )
+            / replacement_demand.loc[supply_enabled]
+        ).clip(lower=0.0, upper=1.0)
+
+        quality_factor = pd.Series(0.0, index=df.index, dtype=float)
+        quality_factor.loc[supply_enabled] = (
+            (
+                remaining_demand.loc[supply_enabled]
+                - rank_numeric.loc[supply_enabled]
+                + 1.0
+            )
+            / remaining_demand.loc[supply_enabled]
+        ).clip(lower=0.0, upper=1.0)
+
+        depletion_signal.loc[supply_enabled] = (
+            100.0
+            * POSITION_POOL_DEPLETION_WEIGHT
+            * depletion_fraction.loc[supply_enabled]
+            * quality_factor.loc[supply_enabled]
+        ).clip(lower=0.0, upper=100.0)
+        df["position_pool_depletion_score"] = depletion_signal.round(2)
+
+    df["tier_scarcity_score"] = pd.concat(
+        [raw_scarcity, depletion_signal],
+        axis=1,
+    ).max(axis=1).clip(lower=0.0, upper=100.0).round(2)
+    df.loc[tierless_mask, "raw_tier_scarcity_score"] = 0.0
+    df.loc[tierless_mask, "position_pool_depletion_score"] = 0.0
     df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
 
     return df
@@ -421,10 +501,6 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     """
 
     df = df.copy()
-
-    # --------------------------------------------------------
-    # REMOVE OLD TIER DATA
-    # --------------------------------------------------------
 
     old_tier_columns = [
         "tier",
@@ -447,34 +523,14 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     if existing_columns:
+        df = df.drop(columns=existing_columns)
 
-        df = df.drop(
-            columns=existing_columns
-        )
-
-    # --------------------------------------------------------
-    # RECALCULATE TIERS
-    # --------------------------------------------------------
-
-    df = assign_position_tiers(
-        df
-    )
-
-    df = add_tier_size(
-        df
-    )
-
-    df = add_tier_boundary_metadata(
-        df
-    )
-
-    df = add_live_tier_scarcity(
-        df
-    )
+    df = assign_position_tiers(df)
+    df = add_tier_size(df)
+    df = add_tier_boundary_metadata(df)
+    df = add_live_tier_scarcity(df)
 
     return df
-
-
 
 
 # ============================================================
@@ -482,10 +538,7 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 def main():
-
-    print(
-        "EdgeIQ Tier Engine ready."
-    )
+    print("EdgeIQ Tier Engine ready.")
 
 
 if __name__ == "__main__":
