@@ -32,6 +32,7 @@ def test_current_roster_team_and_position_override_stale_historical_metadata():
 
     row = result.iloc[0]
     assert row["team"] == "NEW"
+    assert row["prior_roster_team"] == "OLD"
     assert row["position"] == "WR"
     assert bool(row["on_current_roster"]) is True
 
