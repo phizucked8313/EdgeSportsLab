@@ -32,6 +32,7 @@ jobs:
           from fantasy_draft_model.keepers import load_keepers
           from fantasy_draft_model.ui.draft_war_room import filter_available_players
           from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
+          from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
 
           base = build_draft_rankings("drunk_sundays")
           keepers = load_keepers("Drunk Sundays")
@@ -86,6 +87,11 @@ jobs:
           names = [
               "Kenneth Walker III",
               "Breece Hall",
+              "Derrick Henry",
+              "Chase Brown",
+              "Saquon Barkley",
+              "Josh Jacobs",
+              "Bucky Irving",
               "Ja'Marr Chase",
               "Amon-Ra St. Brown",
               "CeeDee Lamb",
@@ -95,4 +101,35 @@ jobs:
           audit = board[board["player_name_clean"].isin(names)][columns]
           print("\nAUDIT COHORT")
           print(audit.round(2).to_string(index=False))
+
+          depth = load_depth_charts()
+          depth_names = depth[depth["player_name"].isin(names)].copy()
+          depth_columns = [
+              column for column in [
+                  "gsis_id", "player_name", "team", "pos_abb", "pos_rank", "edgeiq_role", "dt"
+              ] if column in depth_names.columns
+          ]
+          print("\nCURRENT DEPTH ROLES")
+          print(depth_names[depth_columns].sort_values(["team", "pos_abb", "pos_rank"]).to_string(index=False))
+
+          diagnostic_columns = [
+              column for column in [
+                  "player_id",
+                  "player_name_clean",
+                  "position",
+                  "team",
+                  "prior_roster_team",
+                  "games_played",
+                  "custom_points_per_game",
+                  "carries_per_game",
+                  "targets_per_game",
+                  "opportunity_score",
+                  "baseline_projection",
+                  "opportunity_multiplier",
+                  "projected_points",
+              ] if column in base.columns
+          ]
+          diagnostic = base[base["player_name_clean"].isin(names)][diagnostic_columns]
+          print("\nVETERAN PROJECTION INPUTS")
+          print(diagnostic.round(2).to_string(index=False))
           PY
