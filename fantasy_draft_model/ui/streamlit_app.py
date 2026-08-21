@@ -557,3 +557,20 @@ def run_war_room_ui(st):
     render_war_room_snapshot(st, snapshot)
     render_player_explanation(st, snapshot)
     render_draft_actions(st, snapshot, expected_draft_id=authorized_draft_id)
+
+
+def main():
+    """Launch the EdgeIQ War Room UI without coupling Streamlit to core imports."""
+    import streamlit as st
+
+    st.set_page_config(
+        page_title="EdgeIQ War Room",
+        layout="wide",
+    )
+    st.title("EdgeIQ War Room")
+    st.caption("Live draft assistant shell")
+    run_war_room_ui(st)
+
+
+if __name__ == "__main__":
+    main()
