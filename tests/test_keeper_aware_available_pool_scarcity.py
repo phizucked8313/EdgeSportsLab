@@ -4,9 +4,9 @@ import fantasy_draft_model.draft_assistant as draft_assistant
 from fantasy_draft_model.rankings import (
     add_keeper_depletion_metadata,
     add_position_demand_metadata,
+    infer_unavailable_position_counts,
 )
 from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
-from fantasy_draft_model.ui.draft_war_room import build_keeper_position_counts
 
 
 REPLACEMENT_RANKS = {"QB": 12, "RB": 34, "WR": 38, "TE": 12}
@@ -19,6 +19,7 @@ def _available_board():
             {
                 "player_name_clean": "Top RB",
                 "position": "RB",
+                "position_rank": 13,
                 "projected_points": 330.0,
                 "tier": 4,
                 "tier_next_threshold": 24.5,
@@ -28,6 +29,7 @@ def _available_board():
             {
                 "player_name_clean": "Next RB",
                 "position": "RB",
+                "position_rank": 14,
                 "projected_points": 310.0,
                 "tier": 4,
                 "tier_next_threshold": 24.5,
@@ -37,6 +39,7 @@ def _available_board():
             {
                 "player_name_clean": "Top WR",
                 "position": "WR",
+                "position_rank": 3,
                 "projected_points": 325.0,
                 "tier": 4,
                 "tier_next_threshold": 24.5,
@@ -46,6 +49,7 @@ def _available_board():
             {
                 "player_name_clean": "Top QB",
                 "position": "QB",
+                "position_rank": 1,
                 "projected_points": 490.0,
                 "tier": 1,
                 "tier_next_threshold": 18.0,
@@ -55,6 +59,7 @@ def _available_board():
             {
                 "player_name_clean": "Top TE",
                 "position": "TE",
+                "position_rank": 2,
                 "projected_points": 325.0,
                 "tier": 1,
                 "tier_next_threshold": 12.0,
@@ -103,40 +108,21 @@ def test_available_supply_scarcity_promotes_depleted_rb_wr_over_one_start_qb_te(
     assert result.loc["Top TE", "tier_scarcity_score"] <= 65.0
 
 
-def test_keeper_position_counts_are_derived_from_actual_reservations_and_rankings():
-    rankings = pd.DataFrame(
-        [
-            {"player_name_clean": "Bijan Robinson", "position": "RB"},
-            {"player_name_clean": "Jahmyr Gibbs", "position": "RB"},
-            {"player_name_clean": "Justin Jefferson", "position": "WR"},
-            {"player_name_clean": "Brock Bowers", "position": "TE"},
-        ]
-    )
-    state = {
-        "keeper_reservations": [
-            {"player_name": "Bijan Robinson"},
-            {"player_name": "Jahmyr Gibbs"},
-            {"player_name": "Justin Jefferson"},
-            {"player_name": "Brock Bowers"},
-        ]
-    }
+def test_unavailable_counts_are_inferred_from_missing_replacement_level_ranks():
+    board = add_position_demand_metadata(_available_board(), REPLACEMENT_RANKS)
 
-    assert build_keeper_position_counts(rankings, state) == {
-        "QB": 0,
-        "RB": 2,
-        "WR": 1,
-        "TE": 1,
-    }
+    assert infer_unavailable_position_counts(board) == KEEPER_COUNTS
 
 
-def test_draft_assistant_applies_keeper_depletion_before_live_scarcity(monkeypatch):
+def test_draft_assistant_applies_available_pool_depletion_before_live_scarcity(monkeypatch):
     board = add_position_demand_metadata(_available_board(), REPLACEMENT_RANKS)
     board["draft_rank"] = range(1, len(board) + 1)
-    observed = {"keeper_metadata_seen": False}
+    observed = {"depletion_seen": False}
 
     def inspect_live_scarcity(df):
-        observed["keeper_metadata_seen"] = "keeper_depletion_multiplier" in df.columns
+        observed["depletion_seen"] = "keeper_depletion_multiplier" in df.columns
         assert df.loc[df["position"] == "RB", "position_keeper_count"].iloc[0] == 12
+        assert df.loc[df["position"] == "WR", "position_keeper_count"].iloc[0] == 2
         result = df.copy()
         result["tier_scarcity_score"] = 0.0
         return result
@@ -154,9 +140,6 @@ def test_draft_assistant_applies_keeper_depletion_before_live_scarcity(monkeypat
     monkeypatch.setattr(draft_assistant, "add_pressure_meter", lambda df: df.copy())
     monkeypatch.setattr(draft_assistant, "add_draft_brain", add_brain_identity)
 
-    draft_assistant.build_draft_assistant_from_rankings(
-        board,
-        draft_context={"keeper_position_counts": KEEPER_COUNTS},
-    )
+    draft_assistant.build_draft_assistant_from_rankings(board, draft_context={})
 
-    assert observed["keeper_metadata_seen"] is True
+    assert observed["depletion_seen"] is True
