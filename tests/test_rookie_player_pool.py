@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from fantasy_draft_model.integrations import roster_loader
 from fantasy_draft_model.integrations.roster_loader import add_rookie_identity
 from fantasy_draft_model.models import projections
 
@@ -64,6 +65,66 @@ def test_current_roster_presence_is_preserved_after_outer_merge():
 
     assert bool(result.loc["rook", "on_current_roster"]) is True
     assert bool(result.loc["old", "on_current_roster"]) is False
+
+
+def test_released_player_preserves_unsigned_provenance_without_stale_team():
+    historical = pd.DataFrame([{
+        "player_id": "juju",
+        "player_name_clean": "JuJu Smith-Schuster",
+        "team": "KC",
+        "position": "WR",
+        "games_played": 17,
+    }])
+    roster = pd.DataFrame([{
+        "player_id": "juju",
+        "roster_player_name": "JuJu Smith-Schuster",
+        "current_team": "NYG",
+        "current_position": "WR",
+        "status": "Released",
+        "rookie_year": 2017,
+        "is_rookie": False,
+    }])
+
+    merged = projections.merge_current_roster_identity(historical, roster)
+    result = projections.add_fantasy_draftable_flag(merged).iloc[0]
+
+    assert pd.isna(result["team"])
+    assert result["prior_roster_team"] == "NYG"
+    assert result["roster_status_provenance"] == "Released"
+    assert bool(result["is_unsigned_free_agent"]) is True
+    assert bool(result["on_current_roster"]) is False
+    assert bool(result["is_fantasy_draftable"]) is False
+
+
+def test_verified_release_override_wins_over_stale_active_roster_feed():
+    roster = pd.DataFrame([{
+        "gsis_id": "00-0033857",
+        "player_name_clean": "JuJu Smith-Schuster",
+        "team": "NYG",
+        "position": "WR",
+        "status": "ACT",
+    }])
+    overrides = pd.DataFrame([{
+        "gsis_id": "00-0033857",
+        "player_name": "JuJu Smith-Schuster",
+        "prior_team": "NYG",
+        "status": "Released",
+        "source_url": "https://example.com/juju-release",
+        "source_date": "2026-08-18",
+        "retrieved_at": "2026-08-21T12:00:00+00:00",
+    }])
+
+    helper = getattr(roster_loader, "apply_current_roster_overrides", None)
+    assert helper is not None, "apply_current_roster_overrides is not implemented"
+    result = helper(roster, overrides).iloc[0]
+
+    assert pd.isna(result["team"])
+    assert result["status"] == "Released"
+    assert result["prior_roster_team"] == "NYG"
+    assert result["roster_status_source"] == "https://example.com/juju-release"
+    assert result["roster_status_source_date"] == "2026-08-18"
+    assert result["roster_status_retrieved_at"] == "2026-08-21T12:00:00+00:00"
+    assert bool(result["is_unsigned_free_agent"]) is True
 
 
 def test_draftability_is_separate_from_rookie_identity():

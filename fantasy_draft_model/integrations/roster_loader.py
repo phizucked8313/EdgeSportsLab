@@ -1,8 +1,13 @@
-import pandas as pd
+from pathlib import Path
+
 import nflreadpy as nfl
+import pandas as pd
 
 
 CURRENT_SEASON = 2026
+CURRENT_ROSTER_OVERRIDE_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "current_roster_overrides.csv"
+)
 
 FANTASY_POSITIONS = [
     "QB",
@@ -10,6 +15,50 @@ FANTASY_POSITIONS = [
     "WR",
     "TE",
 ]
+
+
+def apply_current_roster_overrides(df, overrides_df=None):
+    """Apply verified transactions that are fresher than the roster feed."""
+    result = df.copy()
+    overrides = (
+        pd.read_csv(CURRENT_ROSTER_OVERRIDE_PATH)
+        if overrides_df is None and CURRENT_ROSTER_OVERRIDE_PATH.exists()
+        else (pd.DataFrame() if overrides_df is None else overrides_df.copy())
+    )
+    defaults = {
+        "is_unsigned_free_agent": False,
+        "prior_roster_team": "",
+        "roster_status_provenance": "",
+        "roster_status_source": "",
+        "roster_status_source_date": "",
+        "roster_status_retrieved_at": "",
+    }
+    for column, default in defaults.items():
+        if column not in result:
+            result[column] = default
+    if result.empty or overrides.empty:
+        return result
+    lookup = {
+        str(row.get("gsis_id", "")).strip(): row
+        for _, row in overrides.iterrows()
+        if str(row.get("gsis_id", "")).strip()
+    }
+    for index, player in result.iterrows():
+        override = lookup.get(str(player.get("gsis_id", "")).strip())
+        if override is None:
+            continue
+        prior_team = str(override.get("prior_team") or player.get("team") or "").strip()
+        status = str(override.get("status") or "Released").strip()
+        result.at[index, "prior_roster_team"] = prior_team
+        result.at[index, "status"] = status
+        result.at[index, "roster_status_provenance"] = status
+        result.at[index, "roster_status_source"] = str(override.get("source_url") or "").strip()
+        result.at[index, "roster_status_source_date"] = str(override.get("source_date") or "").strip()
+        result.at[index, "roster_status_retrieved_at"] = str(override.get("retrieved_at") or "").strip()
+        result.at[index, "is_unsigned_free_agent"] = True
+        result.at[index, "team"] = pd.NA
+    result["is_unsigned_free_agent"] = result["is_unsigned_free_agent"].astype(bool)
+    return result
 
 
 def add_rookie_identity(df, current_season=CURRENT_SEASON):
@@ -113,6 +162,8 @@ def prepare_fantasy_rosters():
         df,
         current_season=CURRENT_SEASON,
     )
+
+    df = apply_current_roster_overrides(df)
 
     # Remove duplicate roster records
     df = (

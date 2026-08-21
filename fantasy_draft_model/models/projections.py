@@ -258,7 +258,22 @@ def merge_current_roster_identity(historical_df, roster_df):
     historical_df = historical_df.copy()
     roster_df = roster_df.copy()
 
-    roster_df["on_current_roster"] = True
+    roster_status = _series_or_default(roster_df, "status", "").fillna("")
+    unsigned = roster_status.astype(str).str.strip().str.casefold().isin(
+        NON_DRAFTABLE_FRINGE_STATUSES
+    )
+    roster_df["on_current_roster"] = ~unsigned
+    if "is_unsigned_free_agent" not in roster_df:
+        roster_df["is_unsigned_free_agent"] = unsigned
+    else:
+        roster_df["is_unsigned_free_agent"] = (
+            roster_df["is_unsigned_free_agent"].fillna(False).astype(bool) | unsigned
+        )
+    if "prior_roster_team" not in roster_df:
+        roster_df["prior_roster_team"] = roster_df.get("current_team")
+    if "roster_status_provenance" not in roster_df:
+        roster_df["roster_status_provenance"] = roster_status
+    roster_df.loc[roster_df["is_unsigned_free_agent"], "current_team"] = pd.NA
 
     merged_df = historical_df.merge(
         roster_df,
@@ -281,6 +296,8 @@ def merge_current_roster_identity(historical_df, roster_df):
         merged_df["current_team"]
         .fillna(merged_df["team"])
     )
+    unsigned_merged = merged_df["is_unsigned_free_agent"].fillna(False).astype(bool)
+    merged_df.loc[unsigned_merged, "team"] = pd.NA
 
     merged_df["position"] = (
         merged_df["current_position"]
@@ -297,6 +314,12 @@ def merge_current_roster_identity(historical_df, roster_df):
         "current_position",
         "status",
         "on_current_roster",
+        "is_unsigned_free_agent",
+        "prior_roster_team",
+        "roster_status_provenance",
+        "roster_status_source",
+        "roster_status_source_date",
+        "roster_status_retrieved_at",
     }
 
     numeric_columns = [
@@ -350,9 +373,15 @@ def add_current_roster_identity(df):
         "draft_club",
         "draft_number",
         "is_rookie",
+        "is_unsigned_free_agent",
+        "prior_roster_team",
+        "roster_status_provenance",
+        "roster_status_source",
+        "roster_status_source_date",
+        "roster_status_retrieved_at",
     ]
 
-    roster_df = roster_df[roster_columns].copy()
+    roster_df = roster_df.reindex(columns=roster_columns).copy()
 
     return merge_current_roster_identity(
         historical_df,

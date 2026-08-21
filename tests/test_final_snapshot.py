@@ -224,6 +224,64 @@ def test_depth_audit_matches_by_gsis_before_name_team_aliases():
     assert enriched.loc[0, "depth_match_method"] == "gsis_id"
 
 
+def test_depth_audit_matches_suffix_variant_when_source_ids_disagree():
+    board = select_top_300(_board()).iloc[:1].copy()
+    board.loc[board.index[0], ["player_id", "player_name_clean", "team", "position"]] = [
+        "00-0040878",
+        "Mike Washington",
+        "LV",
+        "RB",
+    ]
+    depth = pd.DataFrame([
+        {
+            "gsis_id": "WAS569019",
+            "player_name": "Mike Washington Jr.",
+            "team": "LV",
+            "pos_abb": "RB",
+            "pos_rank": 2,
+            "edgeiq_role": "BACKUP",
+            "dt": "2026-08-21T07:40:57+00:00",
+        }
+    ])
+
+    report, enriched = audit_depth_chart(board, depth)
+
+    assert report["missing_players"] == []
+    assert enriched.loc[0, "depth_match_method"] == "name_team_position_suffix"
+    assert enriched.loc[0, "depth_pos_rank"] == 2
+    assert enriched.loc[0, "depth_role"] == "BACKUP"
+
+
+def test_depth_audit_does_not_merge_ambiguous_suffix_stripped_identities():
+    board = select_top_300(_board()).iloc[:1].copy()
+    board.loc[board.index[0], ["player_id", "player_name_clean", "team", "position"]] = [
+        "unmatched",
+        "Alex Smith III",
+        "LV",
+        "RB",
+    ]
+    depth = pd.DataFrame([
+        {"gsis_id": "one", "player_name": "Alex Smith", "team": "LV", "pos_abb": "RB", "pos_rank": 1},
+        {"gsis_id": "two", "player_name": "Alex Smith Jr.", "team": "LV", "pos_abb": "RB", "pos_rank": 2},
+    ])
+
+    report, enriched = audit_depth_chart(board, depth)
+
+    assert report["missing_players"] == ["Alex Smith III"]
+    assert enriched.loc[0, "depth_match_method"] == ""
+
+
+def test_depth_audit_treats_unsigned_player_as_not_applicable():
+    board = select_top_300(_board()).iloc[:1].copy()
+    board.loc[board.index[0], ["player_name_clean", "team"]] = ["Unsigned Veteran", pd.NA]
+    board["is_unsigned_free_agent"] = True
+
+    report, enriched = audit_depth_chart(board, pd.DataFrame())
+
+    assert report["missing_players"] == []
+    assert enriched.loc[0, "depth_match_method"] == "not_applicable_unsigned"
+
+
 def test_rookie_audit_requires_complete_identity_capital_roster_and_role_review():
     rookie = select_top_300(_board()).iloc[:1].assign(
         is_rookie=True,
@@ -235,11 +293,42 @@ def test_rookie_audit_requires_complete_identity_capital_roster_and_role_review(
         depth_role="BACKUP",
     )
 
-    report = audit_rookies(rookie, expected_count=1)
+    report = audit_rookies(rookie, top_300=rookie, expected_scope_count=1)
 
     assert report["reviewed_count"] == 1
     assert report["failures"] == []
     assert report["players"][0]["projected_role"] == "BACKUP"
+
+
+def test_rookie_audit_reviews_50_scope_players_when_only_49_are_top_300():
+    scope = pd.concat(
+        [
+            select_top_300(_board()).iloc[:1].assign(
+                player_id=f"rookie-{index}",
+                player_name_clean=f"Rookie {index}",
+                draft_rank=index + 1 if index < 49 else 302,
+                is_rookie=True,
+                rookie_year=2026,
+                draft_number=index + 1,
+                status="ACT",
+                on_current_roster=True,
+                depth_pos_rank=2,
+                depth_role="BACKUP",
+            )
+            for index in range(50)
+        ],
+        ignore_index=True,
+    )
+    top_300 = scope.loc[scope["draft_rank"].le(300)].copy()
+
+    report = audit_rookies(scope, top_300=top_300, expected_scope_count=50)
+
+    assert report["reviewed_count"] == 50
+    assert report["top_300_rookie_count"] == 49
+    assert report["failures"] == []
+    assert report["outside_top_300"] == [
+        {"player_id": "rookie-49", "player_name": "Rookie 49", "draft_rank": 302}
+    ]
 
 
 def test_injury_audit_blocks_unreconciled_ir_pup_out_and_doubtful():

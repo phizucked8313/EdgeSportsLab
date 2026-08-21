@@ -43,6 +43,14 @@ def normalize_player_name(value):
     return " ".join(re.findall(r"[a-z0-9]+", text))
 
 
+def normalize_player_identity_name(value):
+    """Normalize display names for cross-source identity fallback matching."""
+    parts = normalize_player_name(value).split()
+    if parts and parts[-1] in {"jr", "sr", "ii", "iii", "iv", "v"}:
+        parts.pop()
+    return " ".join(parts)
+
+
 def _canonicalize_snapshot_values(board):
     result = board.copy(deep=True)
     result["team"] = (
@@ -70,6 +78,7 @@ def audit_depth_chart(board, depth):
     source["_team"] = source["team"].astype(str).str.upper().replace(TEAM_ALIASES)
     source["_position"] = source["pos_abb"].astype(str).str.upper()
     source["_name"] = source["player_name"].map(normalize_player_name)
+    source["_identity_name"] = source["player_name"].map(normalize_player_identity_name)
     records = source.to_dict("records")
     by_id = {
         _clean_text(row["gsis_id"]): row
@@ -81,8 +90,28 @@ def audit_depth_chart(board, depth):
         for row in records
         if row["_name"] and row["_team"] and row["_position"]
     }
+    suffix_candidates = {}
+    for row in records:
+        key = (row["_identity_name"], row["_team"], row["_position"])
+        if all(key):
+            suffix_candidates.setdefault(key, []).append(row)
+    by_suffix_fallback = {
+        key: matches[0]
+        for key, matches in suffix_candidates.items()
+        if len(matches) == 1
+    }
     evidence = []
     for row in players.itertuples(index=False):
+        if bool(getattr(row, "is_unsigned_free_agent", False)):
+            evidence.append(
+                {
+                    "depth_match_method": "not_applicable_unsigned",
+                    "depth_pos_rank": None,
+                    "depth_role": None,
+                    "depth_timestamp": "",
+                }
+            )
+            continue
         match = by_id.get(_clean_text(getattr(row, "player_id", "")))
         method = "gsis_id" if match is not None else ""
         if match is None:
@@ -93,6 +122,14 @@ def audit_depth_chart(board, depth):
             )
             match = by_fallback.get(key)
             method = "name_team_position" if match is not None else ""
+        if match is None:
+            suffix_key = (
+                normalize_player_identity_name(getattr(row, "player_name_clean", "")),
+                TEAM_ALIASES.get(_clean_text(getattr(row, "team", "")).upper(), _clean_text(getattr(row, "team", "")).upper()),
+                _clean_text(getattr(row, "position", "")).upper(),
+            )
+            match = by_suffix_fallback.get(suffix_key)
+            method = "name_team_position_suffix" if match is not None else ""
         evidence.append(
             {
                 "depth_match_method": method,
@@ -114,17 +151,24 @@ def audit_depth_chart(board, depth):
     )
 
 
-def audit_rookies(board, expected_count=50):
-    """Return a complete, serializable review of every selected rookie."""
-    rookies = board.loc[board.get("is_rookie", False).fillna(False).astype(bool)].copy()
+def audit_rookies(audit_scope, *, top_300=None, expected_scope_count=50):
+    """Review a declared rookie scope independently of Top-300 membership."""
+    rookies = audit_scope.loc[
+        audit_scope.get("is_rookie", False).fillna(False).astype(bool)
+    ].copy()
+    selected = rookies if top_300 is None else top_300.loc[
+        top_300.get("is_rookie", False).fillna(False).astype(bool)
+    ].copy()
     required = (
         "player_id", "player_name_clean", "team", "position", "rookie_year",
         "draft_number", "status", "on_current_roster", "depth_pos_rank", "depth_role",
         "projected_points", "projection_confidence",
     )
     failures = []
-    if len(rookies) != expected_count:
-        failures.append(f"expected {expected_count} rookies, found {len(rookies)}")
+    if len(rookies) != expected_scope_count:
+        failures.append(
+            f"expected {expected_scope_count} audit-scope rookies, found {len(rookies)}"
+        )
     for row in rookies.itertuples(index=False):
         missing = [column for column in required if column not in rookies or pd.isna(getattr(row, column, None)) or _clean_text(getattr(row, column, "")) == ""]
         if pd.to_numeric(pd.Series([getattr(row, "rookie_year", None)]), errors="coerce").iloc[0] != 2026:
@@ -152,7 +196,23 @@ def audit_rookies(board, expected_count=50):
                 "projection_confidence": float(getattr(row, "projection_confidence")),
             }
         )
-    return {"reviewed_count": len(rookies), "failures": failures, "players": players}
+    selected_ids = set(selected["player_id"].astype(str))
+    outside_top_300 = [
+        {
+            "player_id": _clean_text(getattr(row, "player_id", "")),
+            "player_name": _clean_text(getattr(row, "player_name_clean", "")),
+            "draft_rank": int(getattr(row, "draft_rank")),
+        }
+        for row in rookies.itertuples(index=False)
+        if _clean_text(getattr(row, "player_id", "")) not in selected_ids
+    ]
+    return {
+        "reviewed_count": len(rookies),
+        "top_300_rookie_count": len(selected),
+        "outside_top_300": outside_top_300,
+        "failures": failures,
+        "players": players,
+    }
 
 
 def audit_injuries(board, retrieved_at):
