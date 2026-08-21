@@ -18,6 +18,9 @@ from fantasy_draft_model.integrations.current_injury_normalizer import (
     load_normalized_current_injuries,
     attach_current_injury_state,
 )
+from fantasy_draft_model.integrations.current_injury_overrides import (
+    attach_current_injury_overrides,
+)
 from fantasy_draft_model.models.team_injury_impact_engine import (
     add_team_injury_impact,
 )
@@ -30,6 +33,10 @@ from fantasy_draft_model.engines.injury_ripple_engine import (
 from fantasy_draft_model.engines.talent_engine import (
     add_rookie_projection_components,
     add_rookie_baseline_projection,
+)
+from fantasy_draft_model.engines.historical_baseline_engine import (
+    add_historical_regression_metadata,
+    load_multi_year_ppr_summary,
 )
 
 
@@ -153,6 +160,24 @@ def add_manual_adjustments(df):
     return df
 
 
+def attach_historical_regression(df, loader=None):
+    """Attach bounded multi-year context without making live rankings fragile."""
+    if loader is None:
+        loader = load_multi_year_ppr_summary
+
+    try:
+        summary = loader()
+        result = add_historical_regression_metadata(df, summary)
+        result["historical_regression_data_status"] = "LIVE"
+        result["historical_regression_failure_reason"] = ""
+        return result
+    except Exception as error:
+        result = add_historical_regression_metadata(df, pd.DataFrame())
+        result["historical_regression_data_status"] = "FALLBACK_NEUTRAL"
+        result["historical_regression_failure_reason"] = str(error)
+        return result
+
+
 def neutralize_positive_ripple_for_current_injuries(df):
     """Prevent currently injured players from benefiting from positive team ripple."""
     result = df.copy()
@@ -178,13 +203,14 @@ def neutralize_positive_ripple_for_current_injuries(df):
 
 
 def apply_current_injury_projection_penalty(df):
-    """Apply a bounded direct penalty for trusted current injury severity."""
+    """Apply status severity plus verified missed-time availability penalties."""
     result = df.copy()
     result["pre_current_injury_projected_points"] = pd.to_numeric(
         result["projected_points"],
         errors="coerce",
     )
     result["current_injury_projection_penalty"] = 0.0
+    result["current_injury_timeline_penalty"] = 0.0
     result["current_injury_projection_multiplier"] = 1.0
 
     injured = (
@@ -210,16 +236,35 @@ def apply_current_injury_projection_penalty(df):
         if "current_injury_severity" in result.columns
         else pd.Series(0.0, index=result.index)
     )
+    expected_games_missed = (
+        pd.to_numeric(
+            result["current_injury_expected_games_missed"],
+            errors="coerce",
+        ).fillna(0.0).clip(lower=0.0, upper=PROJECTED_GAMES)
+        if "current_injury_expected_games_missed" in result.columns
+        else pd.Series(0.0, index=result.index)
+    )
+    season_ending = (
+        result["current_injury_season_ending"].fillna(False).astype(bool)
+        if "current_injury_season_ending" in result.columns
+        else pd.Series(False, index=result.index)
+    )
 
     eligible = injured & (~stale | research_override)
-    penalty = (severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP).clip(
-        lower=0.0,
-        upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP,
-    )
-    result.loc[
-        eligible,
-        "current_injury_projection_penalty",
-    ] = penalty[eligible]
+    severity_penalty = (
+        severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP
+    ).clip(lower=0.0, upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP)
+    timeline_penalty = (
+        expected_games_missed / float(PROJECTED_GAMES)
+    ).clip(lower=0.0, upper=1.0)
+    timeline_penalty = timeline_penalty.mask(season_ending, 1.0)
+    result["current_injury_timeline_penalty"] = timeline_penalty
+
+    final_penalty = pd.concat(
+        [severity_penalty.where(eligible, 0.0), timeline_penalty],
+        axis=1,
+    ).max(axis=1)
+    result["current_injury_projection_penalty"] = final_penalty
     result["current_injury_projection_multiplier"] = (
         1.0 - result["current_injury_projection_penalty"]
     )
@@ -234,8 +279,18 @@ def apply_current_injury_projection_penalty(df):
 def calculate_projection(df):
     df = df.copy()
 
+    historical_multiplier = pd.to_numeric(
+        df.get(
+            "historical_regression_multiplier",
+            pd.Series(1.0, index=df.index),
+        ),
+        errors="coerce",
+    ).fillna(1.0)
+
     df["baseline_projection"] = (
-        df["custom_points_per_game"] * PROJECTED_GAMES
+        df["custom_points_per_game"]
+        * PROJECTED_GAMES
+        * historical_multiplier
     )
 
     if (
@@ -321,6 +376,7 @@ def build_2026_projections(league_key):
 
     df = add_rookie_projection_components(df)
     df = add_rookie_baseline_projection(df)
+    df = attach_historical_regression(df)
     df = add_per_game_metrics(df)
     df = add_rushing_usage_scores(df)
     df = add_qb_contact_exposure(df)
@@ -335,6 +391,7 @@ def build_2026_projections(league_key):
 
     current_injuries = load_normalized_current_injuries()
     df = attach_current_injury_state(df, current_injuries)
+    df = attach_current_injury_overrides(df)
     current_injuries = add_team_injury_impact(current_injuries)
     df = add_player_opportunity_ripple(df, current_injuries)
 

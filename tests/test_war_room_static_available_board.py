@@ -59,7 +59,7 @@ class FakeStreamlit:
         self.dataframes.append((dataframe, kwargs))
 
 
-def test_render_war_room_snapshot_uses_static_html_for_available_players_only():
+def test_render_war_room_snapshot_uses_sortable_dataframe_for_available_players():
     fake_st = FakeStreamlit()
     available = _available_board()
     roster = pd.DataFrame(
@@ -82,11 +82,16 @@ def test_render_war_room_snapshot_uses_static_html_for_available_players_only():
 
     streamlit_app.render_war_room_snapshot(fake_st, snapshot)
 
-    assert len(fake_st.markdowns) == 1
-    body, kwargs = fake_st.markdowns[0]
-    assert "Amon-Ra St. Brown" in body
-    assert kwargs["unsafe_allow_html"] is True
+    assert fake_st.markdowns == []
+    assert len(fake_st.dataframes) == 3
 
-    assert len(fake_st.dataframes) == 2
-    assert fake_st.dataframes[0][0] is roster
-    assert fake_st.dataframes[1][0] is history
+    available_display, available_kwargs = fake_st.dataframes[0]
+    assert available_display["player_name_clean"].tolist() == [
+        "Amon-Ra St. Brown",
+        "Ja'Marr Chase",
+    ]
+    assert available_kwargs["hide_index"] is True
+    assert available_kwargs["use_container_width"] is True
+
+    assert fake_st.dataframes[1][0] is roster
+    assert fake_st.dataframes[2][0] is history

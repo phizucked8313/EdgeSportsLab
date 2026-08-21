@@ -170,10 +170,6 @@ def assign_position_tiers(df: pd.DataFrame) -> pd.DataFrame:
                     threshold
                 )
 
-                # ------------------------------------
-                # START NEW TIER
-                # ------------------------------------
-
                 if (
                     points_drop >= threshold
                     or vorp_drop >= threshold
@@ -398,9 +394,23 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         lambda tier: _tier_depth_factor(tier) if pd.notna(tier) else 0.0
     )
 
-    df["tier_scarcity_score"] = (
+    raw_scarcity = (
         depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
+    ).clip(lower=0.0, upper=100.0)
+    df["raw_tier_scarcity_score"] = raw_scarcity.round(2)
+
+    demand_multiplier = pd.to_numeric(
+        df.get(
+            "position_demand_multiplier",
+            pd.Series(1.0, index=df.index),
+        ),
+        errors="coerce",
+    ).replace([float("inf"), float("-inf")], 1.0).fillna(1.0)
+
+    df["tier_scarcity_score"] = (
+        raw_scarcity * demand_multiplier
     ).clip(lower=0.0, upper=100.0).round(2)
+    df.loc[tierless_mask, "raw_tier_scarcity_score"] = 0.0
     df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
 
     return df
@@ -422,10 +432,6 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # --------------------------------------------------------
-    # REMOVE OLD TIER DATA
-    # --------------------------------------------------------
-
     old_tier_columns = [
         "tier",
         "tier_drop",
@@ -436,6 +442,7 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
         "tier_next_vorp_drop",
         "tier_next_threshold",
         "tier_remaining",
+        "raw_tier_scarcity_score",
         "tier_scarcity_score",
         "tier_status",
     ]
@@ -451,10 +458,6 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
         df = df.drop(
             columns=existing_columns
         )
-
-    # --------------------------------------------------------
-    # RECALCULATE TIERS
-    # --------------------------------------------------------
 
     df = assign_position_tiers(
         df
@@ -473,8 +476,6 @@ def calculate_tiers(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return df
-
-
 
 
 # ============================================================
