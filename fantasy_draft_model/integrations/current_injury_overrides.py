@@ -26,6 +26,12 @@ def _identity_code(value):
     return str(value).strip().upper()
 
 
+def _clean_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
 def _bool_value(value):
     if pd.isna(value):
         return False
@@ -113,7 +119,7 @@ def attach_current_injury_overrides(players_df, overrides_df=None):
         players.at[index, "is_currently_injured"] = True
         players.at[index, "current_injury_research_override"] = True
 
-        body_part = str(override.get("injury_body_part") or "").strip()
+        body_part = _clean_text(override.get("injury_body_part"))
         if body_part:
             players.at[index, "current_injury_body_part"] = body_part
 
@@ -124,21 +130,21 @@ def attach_current_injury_overrides(players_df, overrides_df=None):
         players.at[index, "current_injury_expected_games_missed"] = (
             float(expected_games) if pd.notna(expected_games) else float("nan")
         )
-        players.at[index, "current_injury_expected_return"] = str(
-            override.get("expected_return") or ""
-        ).strip()
+        players.at[index, "current_injury_expected_return"] = _clean_text(
+            override.get("expected_return")
+        )
         players.at[index, "current_injury_season_ending"] = _bool_value(
             override.get("season_ending")
         )
-        players.at[index, "current_injury_timeline_source"] = str(
-            override.get("source_url") or ""
-        ).strip()
-        players.at[index, "current_injury_timeline_source_date"] = str(
-            override.get("source_date") or ""
-        ).strip()
-        players.at[index, "current_injury_timeline_note"] = str(
-            override.get("note") or ""
-        ).strip()
+        players.at[index, "current_injury_timeline_source"] = _clean_text(
+            override.get("source_url")
+        )
+        players.at[index, "current_injury_timeline_source_date"] = _clean_text(
+            override.get("source_date")
+        )
+        players.at[index, "current_injury_timeline_note"] = _clean_text(
+            override.get("note")
+        )
 
     players["is_currently_injured"] = players[
         "is_currently_injured"

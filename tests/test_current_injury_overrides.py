@@ -65,3 +65,25 @@ def test_unmatched_player_stays_neutral():
     assert pd.isna(result["current_injury_expected_games_missed"])
     assert result["current_injury_expected_return"] == ""
     assert bool(result["current_injury_season_ending"]) is False
+
+
+def test_blank_optional_source_date_remains_blank_in_provenance():
+    players = pd.DataFrame([{
+        "player_name_clean": "Season Ending Receiver",
+        "team": "AAA",
+        "position": "WR",
+        "is_currently_injured": True,
+    }])
+    overrides = pd.DataFrame([{
+        "player_name": "Season Ending Receiver",
+        "team": "AAA",
+        "position": "WR",
+        "season_ending": True,
+        "expected_return": "Out for 2026 season",
+        "source_url": "https://example.com/season-ending",
+        "source_date": float("nan"),
+    }])
+
+    result = attach_current_injury_overrides(players, overrides).iloc[0]
+
+    assert result["current_injury_timeline_source_date"] == ""
