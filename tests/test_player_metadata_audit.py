@@ -59,6 +59,7 @@ def _stub_rankings_pipeline(monkeypatch):
             "team": "BUF",
             "position": "WR",
             "position_rank": 1,
+            "projected_points": 250.0,
         }
     ])
 
