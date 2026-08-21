@@ -1,0 +1,189 @@
+name: Temporary League Demand GREEN
+
+on:
+  push:
+    branches:
+      - audit-and-sortable-board
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify-league-demand-scarcity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit-and-sortable-board
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply minimum league-demand scarcity implementation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          rankings_path = Path("fantasy_draft_model/rankings.py")
+          rankings = rankings_path.read_text(encoding="utf-8")
+
+          projection_import = '''from fantasy_draft_model.engines.projection_engine import (
+              build_2026_projections,
+          )
+          '''
+          extra_imports = projection_import + '''from fantasy_draft_model.config import load_league_settings
+          from fantasy_draft_model.engines.vorp_engine import calculate_replacement_ranks
+          from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
+          '''
+          if "from fantasy_draft_model.config import load_league_settings" not in rankings:
+              if projection_import not in rankings:
+                  raise SystemExit("rankings import anchor not found")
+              rankings = rankings.replace(projection_import, extra_imports, 1)
+
+          section_anchor = '''# ============================================================
+          # VORP NORMALIZATION
+          # ============================================================
+          '''
+          demand_function = '''# ============================================================
+          # POSITION DEMAND SCALING
+          # ============================================================
+          
+          def add_position_demand_metadata(
+              df: pd.DataFrame,
+              replacement_ranks,
+              min_multiplier: float = 0.70,
+              max_multiplier: float = 1.25,
+          ) -> pd.DataFrame:
+              """Add a damped league-demand multiplier for positional scarcity.
+          
+              Replacement demand is normalized to the mean active QB/RB/WR/TE
+              replacement rank and square-root damped so lineup demand informs
+              scarcity without becoming a hard positional bonus or ban.
+              """
+              result = df.copy()
+              positions = ("QB", "RB", "WR", "TE")
+              demand = {
+                  position: max(0, int(replacement_ranks.get(position, 0)))
+                  for position in positions
+              }
+              positive_demand = [value for value in demand.values() if value > 0]
+              neutral_demand = (
+                  sum(positive_demand) / len(positive_demand)
+                  if positive_demand
+                  else 1.0
+              )
+          
+              position = (
+                  result.get("position", pd.Series("", index=result.index))
+                  .astype(str)
+                  .str.strip()
+                  .str.upper()
+              )
+              result["position_replacement_rank"] = (
+                  position.map(demand).fillna(0).astype(int)
+              )
+          
+              replacement = pd.to_numeric(
+                  result["position_replacement_rank"],
+                  errors="coerce",
+              ).fillna(0.0)
+              multiplier = pd.Series(1.0, index=result.index, dtype=float)
+              active = replacement > 0
+              multiplier.loc[active] = (
+                  replacement.loc[active] / float(neutral_demand)
+              ).pow(0.5)
+              result["position_demand_multiplier"] = multiplier.clip(
+                  lower=float(min_multiplier),
+                  upper=float(max_multiplier),
+              )
+              return result
+          
+          
+          '''
+          if "def add_position_demand_metadata(" not in rankings:
+              if section_anchor not in rankings:
+                  raise SystemExit("rankings section anchor not found")
+              rankings = rankings.replace(section_anchor, demand_function + section_anchor, 1)
+
+          build_anchor = '''    df = build_2026_projections(league_key)
+              df = df.loc[:, ~df.columns.duplicated()].copy()
+              df = calculate_draft_score(df)
+          '''
+          build_replacement = '''    df = build_2026_projections(league_key)
+              df = df.loc[:, ~df.columns.duplicated()].copy()
+              league_settings = load_league_settings(league_key)
+              replacement_ranks = calculate_replacement_ranks(df, league_settings)
+              df = add_position_demand_metadata(df, replacement_ranks)
+              df = add_live_tier_scarcity(df)
+              df = calculate_draft_score(df)
+          '''
+          if "replacement_ranks = calculate_replacement_ranks(df, league_settings)" not in rankings:
+              if build_anchor not in rankings:
+                  raise SystemExit("rankings build anchor not found")
+              rankings = rankings.replace(build_anchor, build_replacement, 1)
+
+          rankings_path.write_text(rankings, encoding="utf-8")
+
+          tier_path = Path("fantasy_draft_model/engines/tier_engine.py")
+          tier = tier_path.read_text(encoding="utf-8")
+          scarcity_anchor = '''    df["tier_scarcity_score"] = (
+              depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
+          ).clip(lower=0.0, upper=100.0).round(2)
+              df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
+          '''
+          scarcity_replacement = '''    raw_scarcity = (
+              depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
+          ).clip(lower=0.0, upper=100.0)
+              df["raw_tier_scarcity_score"] = raw_scarcity.round(2)
+          
+              demand_multiplier = pd.to_numeric(
+                  df.get(
+                      "position_demand_multiplier",
+                      pd.Series(1.0, index=df.index),
+                  ),
+                  errors="coerce",
+              ).replace([float("inf"), float("-inf")], 1.0).fillna(1.0)
+          
+              df["tier_scarcity_score"] = (
+                  raw_scarcity * demand_multiplier
+              ).clip(lower=0.0, upper=100.0).round(2)
+              df.loc[tierless_mask, "raw_tier_scarcity_score"] = 0.0
+              df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
+          '''
+          if "raw_tier_scarcity_score" not in tier:
+              if scarcity_anchor not in tier:
+                  raise SystemExit("tier scarcity anchor not found")
+              tier = tier.replace(scarcity_anchor, scarcity_replacement, 1)
+
+              old_column_anchor = '''        "tier_remaining",
+                  "tier_scarcity_score",
+                  "tier_status",
+          '''
+              old_column_replacement = '''        "tier_remaining",
+                  "raw_tier_scarcity_score",
+                  "tier_scarcity_score",
+                  "tier_status",
+          '''
+              if old_column_anchor not in tier:
+                  raise SystemExit("tier old-column anchor not found")
+              tier = tier.replace(old_column_anchor, old_column_replacement, 1)
+
+          tier_path.write_text(tier, encoding="utf-8")
+          PY
+      - name: Verify league-demand scarcity GREEN
+        run: python -m pytest tests/test_league_demand_scarcity_adjustment.py -q
+      - name: Verify adjacent ranking contracts
+        run: python -m pytest tests/test_position_demand_scarcity_audit.py tests/test_pressure_meter.py tests/test_draft_brain_engine.py -q
+      - name: Commit only after GREEN
+        run: |
+          if git diff --quiet; then
+            echo "No production patch needed"
+            exit 0
+          fi
+          git config user.name "EdgeIQ Ranking CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add fantasy_draft_model/rankings.py fantasy_draft_model/engines/tier_engine.py
+          git commit -m "feat: scale scarcity by league positional demand"
+          git push origin HEAD:audit-and-sortable-board
