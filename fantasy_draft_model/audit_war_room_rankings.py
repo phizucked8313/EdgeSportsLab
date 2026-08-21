@@ -81,6 +81,7 @@ PROJECTION_AUDIT_COLUMNS = [
     "brain_score",
 ]
 
+
 def _numeric_column(df, column):
     if column not in df.columns:
         return pd.Series(0.0, index=df.index, dtype=float)
@@ -142,11 +143,8 @@ def _add_multipath_value_columns(audit):
 
     direct_scarcity = tier_scarcity_score
 
-    # Draft Brain direct VORP path: normalized VORP * 10%.
     audit["brain_vorp_direct"] = vorp_score * 0.10
-    # Draft Score is 35% VORP, then Draft Brain is 20% Draft Score.
     audit["brain_vorp_via_draft_score"] = vorp_score * 0.35 * 0.20
-    # Pressure is 20% VORP pressure, then Draft Brain is 20% Pressure.
     audit["brain_vorp_via_pressure"] = vorp_pressure * 0.20 * 0.20
     audit["brain_vorp_total"] = (
         audit["brain_vorp_direct"]
@@ -154,11 +152,8 @@ def _add_multipath_value_columns(audit):
         + audit["brain_vorp_via_pressure"]
     )
 
-    # Draft Brain direct scarcity path: tier scarcity * 15%.
     audit["brain_scarcity_direct"] = direct_scarcity * 0.15
-    # Draft Score is 10% tier scarcity, then Draft Brain is 20% Draft Score.
     audit["brain_scarcity_via_draft_score"] = tier_scarcity_score * 0.10 * 0.20
-    # Pressure is 30% tier pressure, then Draft Brain is 20% Pressure.
     audit["brain_scarcity_via_pressure"] = tier_pressure * 0.30 * 0.20
     audit["brain_scarcity_total"] = (
         audit["brain_scarcity_direct"]
@@ -247,6 +242,73 @@ def build_rb_te_value_comparison(board, replacement_ranks, top_n=12):
         comparison = comparison.sort_values("draft_rank", ascending=True)
 
     return comparison.reset_index(drop=True)
+
+
+def build_position_demand_scarcity_audit(board, replacement_ranks, top_n=12):
+    """Compare top-board scarcity awards with league lineup demand by position."""
+    positions = ("QB", "RB", "WR", "TE")
+    columns = [
+        "position",
+        "replacement_rank",
+        "top_n_players",
+        "demand_share",
+        "top_n_share",
+        "top_n_vs_demand_ratio",
+        "top_n_brain_scarcity_points",
+        "scarcity_points_per_demand_slot",
+    ]
+    if "position" not in board.columns:
+        return pd.DataFrame(columns=columns)
+
+    top_n = max(1, int(top_n))
+    if "brain_score" in board.columns:
+        top_board = board.sort_values(
+            "brain_score", ascending=False, kind="stable"
+        ).head(top_n).copy()
+    elif "draft_rank" in board.columns:
+        top_board = board.sort_values(
+            "draft_rank", ascending=True, kind="stable"
+        ).head(top_n).copy()
+    else:
+        top_board = board.head(top_n).copy()
+
+    top_board = _add_multipath_value_columns(top_board)
+    total_top = len(top_board)
+    demand = {
+        position: max(0, int(replacement_ranks.get(position, 0)))
+        for position in positions
+    }
+    total_demand = sum(demand.values())
+
+    rows = []
+    for position in positions:
+        position_rows = top_board.loc[
+            top_board["position"].astype(str).str.strip().str.upper() == position
+        ]
+        replacement_rank = demand[position]
+        top_n_players = len(position_rows)
+        demand_share = replacement_rank / total_demand if total_demand else 0.0
+        top_n_share = top_n_players / total_top if total_top else 0.0
+        ratio = top_n_share / demand_share if demand_share else 0.0
+        scarcity_points = float(position_rows["brain_scarcity_total"].sum())
+        points_per_slot = (
+            scarcity_points / replacement_rank if replacement_rank else 0.0
+        )
+
+        rows.append(
+            {
+                "position": position,
+                "replacement_rank": replacement_rank,
+                "top_n_players": top_n_players,
+                "demand_share": demand_share,
+                "top_n_share": top_n_share,
+                "top_n_vs_demand_ratio": ratio,
+                "top_n_brain_scarcity_points": round(scarcity_points, 2),
+                "scarcity_points_per_demand_slot": round(points_per_slot, 3),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=columns)
 
 
 def build_te_ranking_audit(board):
