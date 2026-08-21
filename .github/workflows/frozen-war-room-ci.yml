@@ -21,21 +21,6 @@ jobs:
           python -m pip install --upgrade pip &&
           python -m pip install -r requirements.txt &&
           python -m pip install openpyxl
-      - name: Diagnose frozen snapshot hashes
-        run: |
-          python - <<'PY'
-          from hashlib import sha256
-          from pathlib import Path
-          path = Path('fantasy_draft_model/data/frozen/2026/edgeiq-top-300-2026.csv')
-          raw = path.read_bytes()
-          lf = raw.replace(b'\r\n', b'\n')
-          crlf = lf.replace(b'\n', b'\r\n')
-          print('raw_sha256=', sha256(raw).hexdigest())
-          print('lf_sha256=', sha256(lf).hexdigest())
-          print('crlf_sha256=', sha256(crlf).hexdigest())
-          print('raw_crlf_count=', raw.count(b'\r\n'))
-          print('raw_lf_count=', raw.count(b'\n'))
-          PY
       - name: Run frozen War Room targeted tests
         run: >-
           python -m pytest -q
