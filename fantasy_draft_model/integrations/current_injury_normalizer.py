@@ -130,10 +130,7 @@ def normalize_current_injuries(players_df):
     df["injury_source_timestamp"] = df["injury_source_timestamp"].apply(
         _clean
     )
-    df.loc[
-        df["injury_source_timestamp"] == "",
-        "injury_source_timestamp",
-    ] = now_iso
+    df["injury_freshness_known"] = df["injury_source_timestamp"].ne("")
 
     df["injury_source_quality"] = df["injury_source_quality"].apply(_clean)
     missing_quality = df["injury_source_quality"] == ""
@@ -178,7 +175,7 @@ def normalize_current_injuries(players_df):
             "edgeiq_injury_body_part", "injury_start_date",
             "needs_research", "injury_data_quality",
             "injury_source", "injury_source_timestamp",
-            "injury_age_hours", "injury_is_stale",
+            "injury_age_hours", "injury_is_stale", "injury_freshness_known",
             "injury_source_quality", "injury_research_override",
             "injury_is_ambiguous", "injury_severity",
             "current_injury_multiplier",
@@ -200,6 +197,7 @@ def attach_current_injury_state(players_df, current_injuries_df):
         "current_injury_source_timestamp": "",
         "current_injury_age_hours": float("nan"),
         "current_injury_is_stale": False,
+        "current_injury_freshness_known": False,
         "current_injury_source_quality": "",
         "current_injury_research_override": False,
         "current_injury_is_ambiguous": False,
@@ -226,6 +224,7 @@ def attach_current_injury_state(players_df, current_injuries_df):
         "injury_source_timestamp",
         "injury_age_hours",
         "injury_is_stale",
+        "injury_freshness_known",
         "injury_source_quality",
         "injury_research_override",
         "injury_is_ambiguous",
@@ -258,6 +257,9 @@ def attach_current_injury_state(players_df, current_injuries_df):
             "current_injury_age_hours": injury["injury_age_hours"],
             "current_injury_is_stale": _bool_value(
                 injury["injury_is_stale"]
+            ),
+            "current_injury_freshness_known": _bool_value(
+                injury["injury_freshness_known"]
             ),
             "current_injury_source_quality": _clean(
                 injury["injury_source_quality"]
@@ -312,6 +314,7 @@ def attach_current_injury_state(players_df, current_injuries_df):
     boolean_columns = [
         "is_currently_injured",
         "current_injury_is_stale",
+        "current_injury_freshness_known",
         "current_injury_research_override",
         "current_injury_is_ambiguous",
     ]
