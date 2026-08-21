@@ -1,161 +1,135 @@
 # EdgeIQ Draft-Night Runbook
 
-This runbook is for the Windows operator running the Drunk Sundays War Room
-from a clean checkout. It describes the supported, evidence-preserving path
-through startup, draft lifecycle choices, rankings refresh, and recovery.
+This runbook is the supported Windows operating procedure for the 2026 Drunk Sundays War Room. Draft night uses the committed immutable player baseline plus the deterministic offline K/DEF supplement. It does **not** rebuild rankings from live data.
 
 ## Invariants
 
-The application owns draft-state and rankings artifacts. Operators must not delete,
-reset, clean, stash, or manually overwrite those artifacts. Operators must not manually overwrite
-repair JSON or CSV by hand. Every recovery action must leave the original
-bytes available for diagnosis. If escalation is needed, copy diagnostic
-artifacts into a new, uniquely named folder before asking for help.
+The application owns draft-state and frozen ranking artifacts. Operators **must not delete** state, backup, recovery, archive, frozen CSV, or manifest files. Operators **must not manually overwrite** JSON or CSV artifacts. Do not run cleanup commands against the repository while a draft is in progress.
+
+The verified skill-position baseline is the committed **frozen snapshot**. The production startup **fails closed** if that snapshot or manifest is missing, malformed, or checksum-invalid. A mutable `war_room_rankings.csv/json` cache is not an authorized substitute.
+
+K/DEF are deterministic offline supplemental entries. They are draftable, searchable, filterable, persistent, and undoable, but they do not receive fake frozen ranks. Until verified component projections are committed, K/DEF league-adjusted Draft Brain value is intentionally withheld rather than fabricated.
 
 ## Artifact locations
 
-All paths below are relative to the repository root:
+All paths are relative to the repository root.
 
 | Artifact | Path |
 | --- | --- |
 | Authoritative draft state | `fantasy_draft_model/data/live_war_room_state.json` |
-| Last-known-good state backup | `fantasy_draft_model/data/live_war_room_state.backup.json` |
+| Last-known-good backup | `fantasy_draft_model/data/live_war_room_state.backup.json` |
 | Recovery metadata | `fantasy_draft_model/data/live_war_room_state.recovery.json` |
 | Verified state archives | `fantasy_draft_model/data/archives/` |
-| Rankings snapshot pointer/metadata | `fantasy_draft_model/data/war_room_rankings.json` |
-| Rankings snapshot generations | `fantasy_draft_model/data/war_room_rankings.<generation>.csv` |
+| Frozen Top 300 CSV | `fantasy_draft_model/data/frozen/2026/edgeiq-top-300-2026.csv` |
+| Frozen manifest | `fantasy_draft_model/data/frozen/2026/edgeiq-top-300-2026.manifest.json` |
+| Offline K/DEF source | `fantasy_draft_model/models/special_teams.py` |
 
-The archive path is shown by the UI after **Start New Draft** and in lifecycle
-errors. Archives are timestamped and use non-overwriting names. Keep the
-authoritative file, backup, recovery metadata, snapshot metadata, and every
-snapshot generation together when collecting diagnostics.
+Verified frozen Top 300 SHA-256:
+
+`e79f4ea672f5a08b81d3a89ac2ed1e8ac38f6b714127bf1df81b44d8e17d245b`
 
 ## Preflight
 
-1. Open PowerShell at the repository root and confirm that the checkout is
-   the intended version.
+1. Open PowerShell at the repository root and confirm you are on the approved production commit/branch.
 2. Confirm Python 3.14.6:
 
    ```powershell
    py -3.14 --version
    ```
 
-3. Create the virtual environment only when `.venv\Scripts\python.exe` is
-   absent. If it exists, inspect its version rather than recreating it:
+3. Create the virtual environment only if it is missing, then confirm its version:
 
    ```powershell
    if (-not (Test-Path .venv\Scripts\python.exe)) { py -3.14 -m venv .venv }
    .\.venv\Scripts\python.exe --version
    ```
 
-   The expected version is `Python 3.14.6`.
-
-4. Install the exact pinned direct dependencies and verify consistency:
+4. Install pinned dependencies and verify consistency:
 
    ```powershell
    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
    .\.venv\Scripts\python.exe -m pip check
    ```
 
-   `requirements.txt` is intentionally pinned. Do not loosen a version to
-   work around a draft-night failure; record the error and escalate it.
-
-5. Before draft night, run the full suite from the repository root:
+5. Run the complete test suite before draft night:
 
    ```powershell
    .\.venv\Scripts\python.exe -m pytest -q
    ```
 
+6. Do not regenerate player rankings or alter the frozen CSV/manifest during preflight.
+
 ## Start the War Room
 
-Launch the application with this exact command from the repository root:
+Launch production with this exact command:
 
 ```powershell
-.\.venv\Scripts\python.exe -m streamlit run fantasy_draft_model/ui/streamlit_app.py
+.\.venv\Scripts\python.exe -m streamlit run fantasy_draft_model/ui/frozen_streamlit_app.py
 ```
 
-The first screen is the lifecycle gate. It must show a draft identity,
-status, accounted slots, timestamps, and the state artifact path before the
-player board is authorized. Do not record a pick until the lifecycle choice
-and rankings source are understood.
+The first screen is the lifecycle gate. Do not record a pick until you have chosen the correct lifecycle action and the authorized board reports `FROZEN/OFFLINE`.
+
+After authorization, confirm:
+
+- Rankings source is `FROZEN/OFFLINE`.
+- The player baseline is the immutable Top 300.
+- K and DEF are visible as supplemental offline entries when filtered/searched.
+- K/DEF do not display a fake frozen rank.
+- The current pick, next BLKWDW'S pick, and picks-until-user are sensible.
 
 ## Lifecycle gate
 
 ### Start New Draft
 
-Choose **Start New Draft** when the displayed draft is not the intended draft
-or when both state copies are unusable and a fresh canonical draft is needed.
-The application inspects the authoritative state, backup, and recovery
-metadata, copies any present artifacts into a verified timestamped archive,
-loads the canonical Drunk Sundays league and keepers, atomically creates a
-fresh validated state, and reloads it before authorization. Check the success
-message for the verified archive path. If initialization fails, leave every
-artifact in place and preserve the displayed error for escalation.
+Choose **Start New Draft** only when beginning the real Drunk Sundays draft or after an explicitly authorized reset. The application archives any existing draft artifacts before creating a fresh canonical state with current keeper reservations. Verify the displayed archive path after the action completes.
 
 ### Resume
 
-Choose **Resume Draft** only after checking the displayed draft identifier,
-league, status, slot count, and update age. Resume is enabled only for a
-validated authoritative state (or an explicitly recovered state). A stale or
-complete draft can still be resumed for review; the UI must visibly show its
-age/status. Never infer that an old state is the correct draft merely because
-it exists.
+Choose **Resume Draft** after confirming the displayed draft identity, league, lifecycle status, accounted slot count, and update age. Resume uses the persisted authoritative draft state; the frozen player baseline and deterministic K/DEF supplement are reconstructed independently and offline.
 
-### Corrupt authoritative state with a valid backup
+### corrupt authoritative state with a valid backup
 
-If the gate reports a corrupt authoritative state and says a validated backup
-is available, choose **Recover Backup**. The application archives the corrupt
-authoritative bytes under `fantasy_draft_model/data/archives/`, atomically
-restores the validated backup, verifies it, and returns to the lifecycle gate.
-Do not touch either state file. If recovery fails, keep both copies and copy
-the diagnostics before escalation.
+If the lifecycle gate reports a **corrupt authoritative** state and a validated backup is available, choose **Recover Backup**. Recovery archives the corrupt authoritative bytes before restoring the validated backup. Do not edit either file manually.
 
 ### both copies invalid
 
-If both the authoritative state and its backup are invalid, the app must not
-invent picks or silently repair either copy. Keep both files unchanged, copy
-them and the recovery metadata into a new diagnostic folder, and record the
-errors shown for each copy. After the evidence is preserved, use **Start New
-Draft** only if the league owner authorizes a fresh draft; its archive step
-preserves the available malformed bytes before creating a new canonical
-state. If a prior draft must be recovered, stop and escalate with the copied
-artifacts instead.
+If **both copies invalid** is the situation (authoritative and backup both fail validation), the app must not invent selections or silently repair data. Preserve both files and the recovery metadata. Only use **Start New Draft** after the available evidence has been archived and a fresh draft is explicitly authorized.
 
-## Rankings network and offline cache recovery
+## Frozen rankings and offline behavior
 
-At startup the app bounds live rankings refresh. A successful refresh is
-labelled `LIVE` and writes a validated CSV generation plus JSON metadata. If
-the live source times out or is unavailable, the app loads the latest
-checksum-verified snapshot and labels it `CACHED/OFFLINE`; it also displays
-the live failure reason. Wait for the startup result rather than restarting
-the browser repeatedly.
+Draft-night production never requires `build_draft_rankings()` and never requires a live data refresh. Startup validates the committed frozen CSV and manifest, including the verified checksum, before authorizing the board.
 
-Before the first pick, confirm the displayed rankings source, creation
-timestamp, and age. Treat cache freshness as an explicit operator check:
-`LIVE` is the current refresh, while `CACHED/OFFLINE` is the timestamped
-last-known-good snapshot. Do not present an old cache as live data or change
-the snapshot timestamp by hand.
+If frozen validation fails, the War Room **fails closed**. Do not fall back to `war_room_rankings.csv`, `war_room_rankings.json`, a 635-player live cache, or a newly generated board. Restore the committed frozen files from the approved repository state before recording picks.
 
-If the live refresh fails and a valid offline cache exists, continue only
-after recording the `CACHED/OFFLINE` status and failure reason. Restore network
-connectivity and use the UI **Retry** control when a current refresh is
-required. If the live source fails and the cache is missing, malformed, or
-checksum-invalid, the UI reports that no usable rankings are available; do
-not record picks until connectivity or a validated cache is restored.
+The K/DEF supplement is built from committed deterministic source data and valid bye weeks. These rows participate in availability, search, position filters, Record Pick, Undo, Save/Resume, and final draft history. They remain separate from frozen rank 1-300.
+
+Because Drunk Sundays has unusually valuable DEF scoring, do not assume defense is a last-round-only position. However, the production assistant must also not invent DEF value. Until verified component projections are committed, the War Room shows defenses as supplemental draftable options without fabricated Draft Brain scores.
+
+## During the draft
+
+- Record the real Yahoo selection immediately after it happens.
+- Confirm the selected player disappears from availability.
+- Keeper slots advance automatically when encountered; do not manually draft a reserved keeper.
+- Use **Undo Last Pick** only to correct the most recent manual entry.
+- After any browser restart, use **Resume Draft** and verify current pick/history before continuing.
+- Do not refresh player data or regenerate rankings during the draft.
+
+## Completion
+
+At the end of the draft, the UI must remain viewable after the final pick. `picks_until_user=None` after the user's final turn is valid endgame state and must not crash the assistant. Keep the final authoritative state and its backups/archive intact.
 
 ## artifact preservation and escalation
 
-When a failure needs escalation, first create a new uniquely named diagnostic
-folder outside the repository's live artifact paths. Copy, without editing,
-the authoritative state, backup, recovery metadata, rankings JSON pointer,
-the referenced rankings CSV generation, the UI error text, and the relevant
-terminal output. Preserve the archive directory if recovery or Start New
-Draft already created one. Copy into a new destination and confirm the copied
-files are readable; do not copy over an existing diagnostic set. Include the
-Python version, `pip check` output, rankings source/age, and the draft ID in
-the report. The operator must copy diagnostic artifacts before escalation, not after a second
-attempt has changed the evidence.
+If a failure requires escalation, create a new uniquely named diagnostic folder outside the live artifact paths and **copy diagnostic artifacts** into it before trying another recovery action. Preserve, without editing:
 
-Only after those copies are secured should the operator contact the maintainer
-or decide whether an authorized **Start New Draft** is appropriate. Never
-delete or manually overwrite live state/cache artifacts while investigating.
+- authoritative draft state;
+- backup and recovery metadata;
+- relevant archive directory;
+- frozen CSV and manifest;
+- terminal/test output;
+- the exact UI error text;
+- Python and dependency versions.
+
+Do not copy over an existing diagnostic set. The operator must preserve evidence before a second action can change it.
+
+Repository reference: https://github.com/phizucked8313/EdgeSportsLab
