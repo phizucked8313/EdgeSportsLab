@@ -271,6 +271,13 @@ def merge_current_roster_identity(historical_df, roster_df):
         )
     if "prior_roster_team" not in roster_df:
         roster_df["prior_roster_team"] = ""
+    prior_team = _series_or_default(roster_df, "prior_roster_team", "")
+    missing_prior_team = prior_team.isna() | prior_team.astype(str).str.strip().eq("")
+    released_without_prior = roster_df["is_unsigned_free_agent"] & missing_prior_team
+    roster_df.loc[released_without_prior, "prior_roster_team"] = roster_df.loc[
+        released_without_prior,
+        "current_team",
+    ]
     if "roster_status_provenance" not in roster_df:
         roster_df["roster_status_provenance"] = roster_status
     roster_df.loc[roster_df["is_unsigned_free_agent"], "current_team"] = pd.NA
