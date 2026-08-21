@@ -3,7 +3,14 @@ from hashlib import sha256
 import pandas as pd
 
 from fantasy_draft_model import draft_night_board
+from fantasy_draft_model.live_war_room import (
+    initialize_war_room,
+    load_war_room_state,
+    record_manual_pick,
+    undo_last_manual_pick,
+)
 from fantasy_draft_model.ui import frozen_streamlit_app, streamlit_app
+from fantasy_draft_model.ui.draft_war_room import filter_available_players
 
 
 EXPECTED_FROZEN_SHA256 = (
@@ -121,6 +128,44 @@ def test_live_view_scores_only_frozen_rows_and_keeps_special_teams_available(mon
 
     assert "K" not in captured["positions"]
     assert "DEF" not in captured["positions"]
-    assert set(snapshot["available"]["position"]) >= {"QB", "RB", "WR", "TE", "K", "DEF"}
+    assert set(snapshot["available"]["position"]) >= {
+        "QB", "RB", "WR", "TE", "K", "DEF"
+    }
     supplemental = snapshot["available"]["is_supplemental"].fillna(False).astype(bool)
     assert snapshot["available"].loc[supplemental, "brain_score"].isna().all()
+
+
+def test_kicker_and_defense_record_persist_and_undo(tmp_path):
+    state_path = tmp_path / "war_room_state.json"
+    state = initialize_war_room(
+        "drunk_sundays",
+        state_path=state_path,
+        state_saver=lambda current, _path: current,
+    )
+    board, _status = draft_night_board.load_production_draft_night_board(
+        "drunk_sundays"
+    )
+    kicker = board.loc[board["player_name_clean"].eq("Brandon Aubrey")].iloc[0]
+    defense = board.loc[board["player_name_clean"].eq("Philadelphia Eagles")].iloc[0]
+
+    kicker_pick = record_manual_pick(state, kicker, state_path=state_path)
+    defense_pick = record_manual_pick(state, defense, state_path=state_path)
+
+    assert kicker_pick["position"] == "K"
+    assert defense_pick["position"] == "DEF"
+    assert kicker_pick["draft_rank"] is None
+    assert defense_pick["draft_rank"] is None
+
+    persisted = load_war_room_state(state_path)
+    drafted_names = [pick["player_name"] for pick in persisted["manual_picks"]]
+    assert drafted_names[-2:] == ["Brandon Aubrey", "Philadelphia Eagles"]
+    available = filter_available_players(board, persisted)
+    assert "Brandon Aubrey" not in available["player_name_clean"].tolist()
+    assert "Philadelphia Eagles" not in available["player_name_clean"].tolist()
+
+    removed = undo_last_manual_pick(persisted, state_path=state_path)
+    assert removed["player_name"] == "Philadelphia Eagles"
+    restored = load_war_room_state(state_path)
+    available_after_undo = filter_available_players(board, restored)
+    assert "Philadelphia Eagles" in available_after_undo["player_name_clean"].tolist()
+    assert "Brandon Aubrey" not in available_after_undo["player_name_clean"].tolist()
