@@ -5,9 +5,182 @@ on:
     branches:
       - live-war-room-core
 
+permissions:
+  contents: write
+
 jobs:
+  apply-timeline-injury-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit-and-sortable-board
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply minimum timeline-aware penalty implementation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("fantasy_draft_model/engines/projection_engine.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = '''def apply_current_injury_projection_penalty(df):
+              """Apply a bounded direct penalty for trusted current injury severity."""
+              result = df.copy()
+              result["pre_current_injury_projected_points"] = pd.to_numeric(
+                  result["projected_points"],
+                  errors="coerce",
+              )
+              result["current_injury_projection_penalty"] = 0.0
+              result["current_injury_projection_multiplier"] = 1.0
+
+              injured = (
+                  result["is_currently_injured"].fillna(False).astype(bool)
+                  if "is_currently_injured" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              stale = (
+                  result["current_injury_is_stale"].fillna(False).astype(bool)
+                  if "current_injury_is_stale" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              research_override = (
+                  result["current_injury_research_override"].fillna(False).astype(bool)
+                  if "current_injury_research_override" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              severity = (
+                  pd.to_numeric(
+                      result["current_injury_severity"],
+                      errors="coerce",
+                  ).fillna(0.0).clip(lower=0.0)
+                  if "current_injury_severity" in result.columns
+                  else pd.Series(0.0, index=result.index)
+              )
+
+              eligible = injured & (~stale | research_override)
+              penalty = (severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP).clip(
+                  lower=0.0,
+                  upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP,
+              )
+              result.loc[
+                  eligible,
+                  "current_injury_projection_penalty",
+              ] = penalty[eligible]
+              result["current_injury_projection_multiplier"] = (
+                  1.0 - result["current_injury_projection_penalty"]
+              )
+              result["projected_points"] = (
+                  result["pre_current_injury_projected_points"]
+                  * result["current_injury_projection_multiplier"]
+              )
+
+              return result
+          '''
+
+          new = '''def apply_current_injury_projection_penalty(df):
+              """Apply status severity plus verified missed-time availability penalties."""
+              result = df.copy()
+              result["pre_current_injury_projected_points"] = pd.to_numeric(
+                  result["projected_points"],
+                  errors="coerce",
+              )
+              result["current_injury_projection_penalty"] = 0.0
+              result["current_injury_timeline_penalty"] = 0.0
+              result["current_injury_projection_multiplier"] = 1.0
+
+              injured = (
+                  result["is_currently_injured"].fillna(False).astype(bool)
+                  if "is_currently_injured" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              stale = (
+                  result["current_injury_is_stale"].fillna(False).astype(bool)
+                  if "current_injury_is_stale" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              research_override = (
+                  result["current_injury_research_override"].fillna(False).astype(bool)
+                  if "current_injury_research_override" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+              severity = (
+                  pd.to_numeric(
+                      result["current_injury_severity"],
+                      errors="coerce",
+                  ).fillna(0.0).clip(lower=0.0)
+                  if "current_injury_severity" in result.columns
+                  else pd.Series(0.0, index=result.index)
+              )
+              expected_games_missed = (
+                  pd.to_numeric(
+                      result["current_injury_expected_games_missed"],
+                      errors="coerce",
+                  ).fillna(0.0).clip(lower=0.0, upper=PROJECTED_GAMES)
+                  if "current_injury_expected_games_missed" in result.columns
+                  else pd.Series(0.0, index=result.index)
+              )
+              season_ending = (
+                  result["current_injury_season_ending"].fillna(False).astype(bool)
+                  if "current_injury_season_ending" in result.columns
+                  else pd.Series(False, index=result.index)
+              )
+
+              eligible = injured & (~stale | research_override)
+              severity_penalty = (
+                  severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP
+              ).clip(lower=0.0, upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP)
+              timeline_penalty = (
+                  expected_games_missed / float(PROJECTED_GAMES)
+              ).clip(lower=0.0, upper=1.0)
+              timeline_penalty = timeline_penalty.mask(season_ending, 1.0)
+              result["current_injury_timeline_penalty"] = timeline_penalty
+
+              final_penalty = pd.concat(
+                  [severity_penalty.where(eligible, 0.0), timeline_penalty],
+                  axis=1,
+              ).max(axis=1)
+              result["current_injury_projection_penalty"] = final_penalty
+              result["current_injury_projection_multiplier"] = (
+                  1.0 - result["current_injury_projection_penalty"]
+              )
+              result["projected_points"] = (
+                  result["pre_current_injury_projected_points"]
+                  * result["current_injury_projection_multiplier"]
+              )
+
+              return result
+          '''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'result["current_injury_timeline_penalty"]' not in text:
+              raise SystemExit("current injury penalty function not found")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Verify timeline injury tests
+        run: python -m pytest tests/test_current_injury_timeline_penalty.py tests/test_current_injury_projection_penalty.py -q
+      - name: Commit timeline injury fix
+        run: |
+          if git diff --quiet; then
+            echo "No production patch needed"
+            exit 0
+          fi
+          git config user.name "EdgeIQ Ranking CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add fantasy_draft_model/engines/projection_engine.py
+          git commit -m "feat: model verified current injury timelines"
+          git push origin HEAD:audit-and-sortable-board
+
   ranking-integrity-contracts:
     runs-on: ubuntu-latest
+    needs: apply-timeline-injury-fix
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,4 +192,4 @@ jobs:
       - name: Verify injury freshness provenance
         run: python -m pytest tests/test_current_injury_normalizer.py tests/test_current_injury_pipeline.py tests/test_current_injury_severity_contract.py -q
       - name: Verify timeline-aware injury availability
-        run: python -m pytest tests/test_current_injury_timeline_penalty.py -q
+        run: python -m pytest tests/test_current_injury_timeline_penalty.py tests/test_current_injury_projection_penalty.py -q
