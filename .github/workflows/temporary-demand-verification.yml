@@ -4,14 +4,15 @@ on:
   push:
     branches:
       - audit-and-sortable-board
+  pull_request:
+    branches:
+      - live-war-room-core
 
 jobs:
   verify-demand-scarcity:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: audit-and-sortable-board
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
