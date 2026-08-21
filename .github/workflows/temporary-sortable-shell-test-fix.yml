@@ -1,0 +1,53 @@
+name: Temporary Sortable Shell Test Fix
+
+on:
+  push:
+    branches:
+      - audit-and-sortable-board
+
+permissions:
+  contents: write
+
+jobs:
+  update-stale-shell-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit-and-sortable-board
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Update stale static-board assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_streamlit_war_room_shell.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    assert len(fake_st.markdowns) == 1
+              assert "Beta RB" in fake_st.markdowns[0][0]
+              assert fake_st.markdowns[0][1]["unsafe_allow_html"] is True
+              assert fake_st.dataframes == [roster, history]
+          '''
+          new = '''    assert fake_st.markdowns == []
+              assert len(fake_st.dataframes) == 3
+              assert fake_st.dataframes[0]["player_name_clean"].tolist() == ["Beta RB"]
+              assert fake_st.dataframes[1] is roster
+              assert fake_st.dataframes[2] is history
+          '''
+          if old not in text:
+              raise SystemExit("stale sortable-board assertion block not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify shell test
+        run: python -m pytest tests/test_streamlit_war_room_shell.py::test_render_war_room_snapshot_shows_context_and_live_panels -q
+      - name: Commit updated assertion
+        run: |
+          git config user.name "EdgeIQ Ranking CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add tests/test_streamlit_war_room_shell.py
+          git commit -m "test: expect sortable available-player dataframe in shell"
+          git push origin HEAD:audit-and-sortable-board
