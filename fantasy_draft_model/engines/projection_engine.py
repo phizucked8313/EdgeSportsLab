@@ -38,6 +38,7 @@ from fantasy_draft_model.engines.talent_engine import (
 # ============================================================
 
 PROJECTED_GAMES = 17
+CURRENT_INJURY_PROJECTION_PENALTY_CAP = 0.12
 
 MANUAL_PLAYER_ADJUSTMENTS = {
     # "Player Name": 1.05,
@@ -172,6 +173,60 @@ def neutralize_positive_ripple_for_current_injuries(df):
         injured & positive_ripple,
         "injury_ripple_multiplier",
     ] = 1.0
+
+    return result
+
+
+def apply_current_injury_projection_penalty(df):
+    """Apply a bounded direct penalty for trusted current injury severity."""
+    result = df.copy()
+    result["pre_current_injury_projected_points"] = pd.to_numeric(
+        result["projected_points"],
+        errors="coerce",
+    )
+    result["current_injury_projection_penalty"] = 0.0
+    result["current_injury_projection_multiplier"] = 1.0
+
+    injured = (
+        result["is_currently_injured"].fillna(False).astype(bool)
+        if "is_currently_injured" in result.columns
+        else pd.Series(False, index=result.index)
+    )
+    stale = (
+        result["current_injury_is_stale"].fillna(False).astype(bool)
+        if "current_injury_is_stale" in result.columns
+        else pd.Series(False, index=result.index)
+    )
+    research_override = (
+        result["current_injury_research_override"].fillna(False).astype(bool)
+        if "current_injury_research_override" in result.columns
+        else pd.Series(False, index=result.index)
+    )
+    severity = (
+        pd.to_numeric(
+            result["current_injury_severity"],
+            errors="coerce",
+        ).fillna(0.0).clip(lower=0.0)
+        if "current_injury_severity" in result.columns
+        else pd.Series(0.0, index=result.index)
+    )
+
+    eligible = injured & (~stale | research_override)
+    penalty = (severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP).clip(
+        lower=0.0,
+        upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP,
+    )
+    result.loc[
+        eligible,
+        "current_injury_projection_penalty",
+    ] = penalty[eligible]
+    result["current_injury_projection_multiplier"] = (
+        1.0 - result["current_injury_projection_penalty"]
+    )
+    result["projected_points"] = (
+        result["pre_current_injury_projected_points"]
+        * result["current_injury_projection_multiplier"]
+    )
 
     return result
 
@@ -324,6 +379,7 @@ def build_2026_projections(league_key):
         * df["injury_ripple_multiplier"]
         * df["injury_opportunity_multiplier"]
     )
+    df = apply_current_injury_projection_penalty(df)
     df["injury_projection_change"] = (
         df["projected_points"]
         - df["pre_injury_projected_points"]
