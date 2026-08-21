@@ -34,6 +34,10 @@ from fantasy_draft_model.engines.talent_engine import (
     add_rookie_projection_components,
     add_rookie_baseline_projection,
 )
+from fantasy_draft_model.engines.historical_baseline_engine import (
+    add_historical_regression_metadata,
+    load_multi_year_ppr_summary,
+)
 
 
 # ============================================================
@@ -154,6 +158,24 @@ def add_manual_adjustments(df):
         ] = factor
 
     return df
+
+
+def attach_historical_regression(df, loader=None):
+    """Attach bounded multi-year context without making live rankings fragile."""
+    if loader is None:
+        loader = load_multi_year_ppr_summary
+
+    try:
+        summary = loader()
+        result = add_historical_regression_metadata(df, summary)
+        result["historical_regression_data_status"] = "LIVE"
+        result["historical_regression_failure_reason"] = ""
+        return result
+    except Exception as error:
+        result = add_historical_regression_metadata(df, pd.DataFrame())
+        result["historical_regression_data_status"] = "FALLBACK_NEUTRAL"
+        result["historical_regression_failure_reason"] = str(error)
+        return result
 
 
 def neutralize_positive_ripple_for_current_injuries(df):
