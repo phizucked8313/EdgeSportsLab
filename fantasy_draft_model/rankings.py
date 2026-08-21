@@ -5,9 +5,12 @@ Version 1
 
 import pandas as pd
 
+from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.engines.projection_engine import (
     build_2026_projections,
 )
+from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
+from fantasy_draft_model.engines.vorp_engine import calculate_replacement_ranks
 from fantasy_draft_model.models.football_intelligence import (
     add_football_intelligence,
 )
@@ -16,6 +19,62 @@ from fantasy_draft_model.models.special_teams import (
     build_defense_rankings,
 )
 from fantasy_draft_model.models.schedule import get_bye_week
+
+
+# ============================================================
+# POSITION DEMAND SCALING
+# ============================================================
+
+def add_position_demand_metadata(
+    df: pd.DataFrame,
+    replacement_ranks,
+    min_multiplier: float = 0.70,
+    max_multiplier: float = 1.25,
+) -> pd.DataFrame:
+    """Add a damped league-demand multiplier for positional scarcity.
+
+    Replacement demand is normalized to the mean active QB/RB/WR/TE
+    replacement rank and square-root damped so lineup demand informs
+    scarcity without becoming a hard positional bonus or ban.
+    """
+
+    result = df.copy()
+    positions = ("QB", "RB", "WR", "TE")
+    demand = {
+        position: max(0, int(replacement_ranks.get(position, 0)))
+        for position in positions
+    }
+    positive_demand = [value for value in demand.values() if value > 0]
+    neutral_demand = (
+        sum(positive_demand) / len(positive_demand)
+        if positive_demand
+        else 1.0
+    )
+
+    position = (
+        result.get("position", pd.Series("", index=result.index))
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+    result["position_replacement_rank"] = (
+        position.map(demand).fillna(0).astype(int)
+    )
+
+    replacement = pd.to_numeric(
+        result["position_replacement_rank"],
+        errors="coerce",
+    ).fillna(0.0)
+    multiplier = pd.Series(1.0, index=result.index, dtype=float)
+    active = replacement > 0
+    multiplier.loc[active] = (
+        replacement.loc[active] / float(neutral_demand)
+    ).pow(0.5)
+    result["position_demand_multiplier"] = multiplier.clip(
+        lower=float(min_multiplier),
+        upper=float(max_multiplier),
+    )
+    return result
 
 
 # ============================================================
@@ -187,6 +246,10 @@ def build_draft_rankings(league_key):
 
     df = build_2026_projections(league_key)
     df = df.loc[:, ~df.columns.duplicated()].copy()
+    league_settings = load_league_settings(league_key)
+    replacement_ranks = calculate_replacement_ranks(df, league_settings)
+    df = add_position_demand_metadata(df, replacement_ranks)
+    df = add_live_tier_scarcity(df)
     df = calculate_draft_score(df)
     df = create_overall_rankings(df)
     df = add_position_rank_label(df)
