@@ -73,7 +73,7 @@ jobs:
           git commit -m "fix: restore sortable War Room available board"
           git push origin HEAD:audit-and-sortable-board
 
-  targeted-tests:
+  targeted-tests-and-audit:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -86,3 +86,154 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Run sortable-board regression
         run: python -m pytest tests/test_war_room_draft_night_display.py -q
+      - name: Build live full-pool ranking audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          from fantasy_draft_model.rankings import build_draft_rankings
+          from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
+          from fantasy_draft_model.integrations.data_loader import load_weekly_player_stats
+          from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
+
+          out = Path("audit_artifacts")
+          out.mkdir(exist_ok=True)
+
+          base = build_draft_rankings("drunk_sundays")
+          board = build_draft_assistant_from_rankings(
+              base,
+              draft_context={
+                  "picks_until_user": 8,
+                  "drafted_picks": [],
+              },
+          ).copy().reset_index(drop=True)
+          board.insert(0, "live_order", range(1, len(board) + 1))
+
+          weekly = load_weekly_player_stats()
+          if "season_type" in weekly.columns:
+              weekly = weekly[weekly["season_type"] == "REG"].copy()
+          if {"player_id", "team", "week"}.issubset(weekly.columns):
+              historical = (
+                  weekly.sort_values(["player_id", "week"])
+                  .groupby("player_id", as_index=False)
+                  .agg(historical_team=("team", "last"))
+              )
+              board = board.merge(historical, on="player_id", how="left")
+          else:
+              board["historical_team"] = ""
+
+          try:
+              depth = load_depth_charts()
+          except Exception as error:
+              print(f"DEPTH_CHART_AUDIT_WARNING: {error}")
+              depth = pd.DataFrame()
+
+          board["depth_role"] = ""
+          board["depth_rank"] = pd.NA
+          if not depth.empty and "gsis_id" in depth.columns and "player_id" in board.columns:
+              depth_lookup = (
+                  depth.dropna(subset=["gsis_id"])
+                  .drop_duplicates(subset=["gsis_id"])
+                  .set_index("gsis_id")
+              )
+              if "edgeiq_role" in depth_lookup.columns:
+                  board["depth_role"] = board["player_id"].map(depth_lookup["edgeiq_role"]).fillna("")
+              if "pos_rank" in depth_lookup.columns:
+                  board["depth_rank"] = board["player_id"].map(depth_lookup["pos_rank"])
+
+          def num(name, default=0.0):
+              if name not in board.columns:
+                  return pd.Series(default, index=board.index, dtype=float)
+              return pd.to_numeric(board[name], errors="coerce").fillna(default)
+
+          board["team_changed"] = (
+              board.get("historical_team", pd.Series("", index=board.index)).fillna("").astype(str).str.strip().ne("")
+              & board.get("team", pd.Series("", index=board.index)).fillna("").astype(str).str.strip().ne("")
+              & board["historical_team"].astype(str).str.upper().ne(board["team"].astype(str).str.upper())
+          )
+
+          board["draft_vorp_component"] = (num("vorp_score") * 0.35).round(3)
+          board["draft_edgescore_component"] = (num("edgescore") * 0.25).round(3)
+          board["draft_projection_component"] = (num("projection_score") * 0.20).round(3)
+          board["draft_confidence_component"] = (num("projection_confidence") * 0.10).round(3)
+          board["draft_scarcity_component"] = (num("tier_scarcity_score") * 0.10).round(3)
+          board["pressure_board_component"] = (num("board_pressure") * 0.30).round(3)
+          board["pressure_tier_component"] = (num("tier_pressure") * 0.30).round(3)
+          board["pressure_vorp_component"] = (num("vorp_pressure") * 0.20).round(3)
+          board["pressure_value_component"] = (num("value_pressure") * 0.20).round(3)
+          board["brain_pressure_component"] = (num("pressure_score") * 0.20).round(3)
+          board["brain_draft_component"] = (num("draft_score") * 0.20).round(3)
+          board["brain_edgescore_component"] = (num("edgescore") * 0.15).round(3)
+          board["brain_confidence_component"] = (num("projection_confidence") * 0.10).round(3)
+          board["brain_scarcity_component"] = (num("tier_scarcity_score") * 0.15).round(3)
+          board["brain_vorp_component"] = (num("vorp_score") * 0.10).round(3)
+          board["brain_safety_component"] = ((100.0 - num("injury_risk_score")).clip(0, 100) * 0.05).round(3)
+
+          injured = board.get("is_currently_injured", pd.Series(False, index=board.index)).fillna(False).astype(bool)
+          stale = board.get("current_injury_is_stale", pd.Series(False, index=board.index)).fillna(False).astype(bool)
+          early_qb_te = num("draft_rank", 9999).le(12) & board.get("position", pd.Series("", index=board.index)).isin(["QB", "TE"])
+          starter = board["depth_role"].astype(str).str.upper().eq("STARTER")
+          rb_low_usage = board.get("position", pd.Series("", index=board.index)).eq("RB") & num("carries_per_game").lt(10)
+          pass_low_usage = board.get("position", pd.Series("", index=board.index)).isin(["WR", "TE"]) & num("targets_per_game").lt(5)
+
+          flags = []
+          for idx in board.index:
+              row_flags = []
+              if bool(board.at[idx, "team_changed"]):
+                  row_flags.append("2026_TEAM_CHANGE")
+              if starter.at[idx] and bool(board.at[idx, "team_changed"]):
+                  row_flags.append("STARTER_TEAM_CHANGE_REVIEW")
+              if starter.at[idx] and (rb_low_usage.at[idx] or pass_low_usage.at[idx]):
+                  row_flags.append("LOW_2025_USAGE_CURRENT_STARTER")
+              if injured.at[idx]:
+                  row_flags.extend(["CURRENT_INJURY", "EXPECTED_RETURN_NOT_MODELED"])
+              if stale.at[idx]:
+                  row_flags.append("STALE_INJURY")
+              if early_qb_te.at[idx]:
+                  row_flags.append("ONE_QB_EARLY_QB_TE_REVIEW")
+              flags.append("|".join(row_flags))
+          board["audit_flags"] = flags
+
+          preferred = [
+              "live_order", "draft_rank", "player_name_clean", "position", "team", "position_rank_label",
+              "historical_team", "team_changed", "depth_role", "depth_rank", "is_rookie",
+              "games_played", "carries_per_game", "targets_per_game", "opportunity_score",
+              "baseline_projection", "pre_current_injury_projected_points", "projected_points",
+              "current_injury_projection_penalty", "is_currently_injured", "current_injury_status",
+              "current_injury_body_part", "current_injury_practice_status", "current_injury_age_hours",
+              "current_injury_is_stale", "current_injury_source_quality", "current_injury_source",
+              "replacement_points", "vorp", "vorp_score", "projection_score", "tier", "tier_remaining",
+              "tier_scarcity_score", "edgescore", "projection_confidence", "injury_risk_score",
+              "draft_score", "pressure_score", "brain_score", "brain_recommendation",
+              "draft_vorp_component", "draft_edgescore_component", "draft_projection_component",
+              "draft_confidence_component", "draft_scarcity_component", "pressure_board_component",
+              "pressure_tier_component", "pressure_vorp_component", "pressure_value_component",
+              "brain_pressure_component", "brain_draft_component", "brain_edgescore_component",
+              "brain_confidence_component", "brain_scarcity_component", "brain_vorp_component",
+              "brain_safety_component", "audit_flags",
+          ]
+          columns = [column for column in preferred if column in board.columns]
+          audit = board[columns].copy()
+          audit.to_csv(out / "full_pool.csv", index=False)
+          audit.head(150).to_csv(out / "top150.csv", index=False)
+          audit[injured].to_csv(out / "current_injuries.csv", index=False)
+          audit[board["team_changed"]].to_csv(out / "team_changes.csv", index=False)
+          audit[early_qb_te].to_csv(out / "early_qb_te.csv", index=False)
+
+          focus_names = [
+              "Ja'Marr Chase", "Amon-Ra St. Brown", "Trey McBride", "Josh Allen",
+              "Kenneth Walker III", "Breece Hall",
+          ]
+          focus = audit[audit["player_name_clean"].isin(focus_names)].copy()
+          focus.to_csv(out / "focus_players.csv", index=False)
+          print("\nEDGEIQ FOCUS AUDIT\n")
+          print(focus.to_string(index=False))
+          print(f"\nAUDIT_ROWS={len(audit)} INJURED_ROWS={int(injured.sum())} TEAM_CHANGES={int(board['team_changed'].sum())} EARLY_QB_TE={int(early_qb_te.sum())}")
+          PY
+      - name: Upload ranking audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: edgeiq-full-ranking-audit
+          path: audit_artifacts/*.csv
+          retention-days: 7
