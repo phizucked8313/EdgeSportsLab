@@ -257,8 +257,18 @@ def apply_current_injury_projection_penalty(df):
 def calculate_projection(df):
     df = df.copy()
 
+    historical_multiplier = pd.to_numeric(
+        df.get(
+            "historical_regression_multiplier",
+            pd.Series(1.0, index=df.index),
+        ),
+        errors="coerce",
+    ).fillna(1.0)
+
     df["baseline_projection"] = (
-        df["custom_points_per_game"] * PROJECTED_GAMES
+        df["custom_points_per_game"]
+        * PROJECTED_GAMES
+        * historical_multiplier
     )
 
     if (
