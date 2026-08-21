@@ -18,6 +18,7 @@ DRAFT_NIGHT_COLUMNS = [
     "brain_score",
     "brain_recommendation",
     "injury_risk_score",
+    "current_injury",
 ]
 
 

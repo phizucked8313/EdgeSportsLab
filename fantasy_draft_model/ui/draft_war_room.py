@@ -29,6 +29,7 @@ DRAFT_NIGHT_COLUMNS = [
     "brain_score",
     "brain_recommendation",
     "injury_risk_score",
+    "current_injury",
 ]
 
 AVAILABLE_PLAYERS_ONLY_ATTR = "_edgeiq_available_players_only"
@@ -95,6 +96,137 @@ def get_display_tier_label(player):
     return format_position_tier(player.get("position", ""), tier)
 
 
+def _bool_value(value):
+    if pd.isna(value):
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n", ""}:
+            return False
+    return bool(value)
+
+
+def _numeric_value(value, default=0.0):
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return default
+    return float(numeric)
+
+
+def _injury_status_label(value):
+    status = str(value or "").strip()
+    if not status:
+        return ""
+    normalized = status.casefold()
+    labels = {
+        "questionable": "Q",
+        "doubtful": "D",
+        "out": "OUT",
+        "ir": "IR",
+        "injured reserve": "IR",
+        "pup": "PUP",
+    }
+    return labels.get(normalized, status.upper())
+
+
+def build_current_injury_summary(player):
+    """Build one compact, draft-night current-injury label."""
+    if not _bool_value(player.get("is_currently_injured", False)):
+        return ""
+
+    parts = []
+    status = _injury_status_label(player.get("current_injury_status"))
+    body_part = str(player.get("current_injury_body_part") or "").strip()
+    practice = str(player.get("current_injury_practice_status") or "").strip().upper()
+
+    if status:
+        parts.append(status)
+    if body_part:
+        parts.append(body_part)
+    if practice:
+        parts.append(practice)
+
+    is_stale = _bool_value(player.get("current_injury_is_stale", False))
+    penalty_pct = max(
+        0.0,
+        _numeric_value(player.get("current_injury_projection_penalty"), 0.0) * 100.0,
+    )
+    if is_stale:
+        parts.append("STALE")
+    elif penalty_pct > 0.0:
+        parts.append(f"-{penalty_pct:.1f}%")
+
+    age_hours = pd.to_numeric(player.get("current_injury_age_hours"), errors="coerce")
+    if pd.notna(age_hours):
+        parts.append(f"{float(age_hours):.0f}h")
+
+    return " | ".join(parts)
+
+
+def build_current_injury_detail(player):
+    """Return auditable current-injury facts for a player explanation."""
+    is_injured = _bool_value(player.get("is_currently_injured", False))
+    is_stale = _bool_value(player.get("current_injury_is_stale", False))
+    research_override = _bool_value(
+        player.get("current_injury_research_override", False)
+    )
+    penalty_fraction = max(
+        0.0,
+        _numeric_value(player.get("current_injury_projection_penalty"), 0.0),
+    )
+    penalty_pct = round(penalty_fraction * 100.0, 1)
+
+    post_projection = _numeric_value(player.get("projected_points"), 0.0)
+    pre_projection = _numeric_value(
+        player.get("pre_current_injury_projected_points"),
+        post_projection,
+    )
+    age_hours_raw = pd.to_numeric(
+        player.get("current_injury_age_hours"),
+        errors="coerce",
+    )
+    age_hours = None if pd.isna(age_hours_raw) else float(age_hours_raw)
+
+    message = ""
+    if is_stale and not research_override and penalty_pct == 0.0:
+        message = "Stale injury report — no automatic projection penalty applied."
+
+    return {
+        "is_currently_injured": is_injured,
+        "status": str(player.get("current_injury_status") or "").strip(),
+        "body_part": str(player.get("current_injury_body_part") or "").strip(),
+        "practice_status": str(
+            player.get("current_injury_practice_status") or ""
+        ).strip(),
+        "source_timestamp": str(
+            player.get("current_injury_source_timestamp") or ""
+        ).strip(),
+        "age_hours": age_hours,
+        "source_quality": str(
+            player.get("current_injury_source_quality") or ""
+        ).strip(),
+        "data_quality": str(
+            player.get("current_injury_data_quality") or ""
+        ).strip(),
+        "source": str(player.get("current_injury_source") or "").strip(),
+        "is_stale": is_stale,
+        "research_override": research_override,
+        "is_ambiguous": _bool_value(
+            player.get("current_injury_is_ambiguous", False)
+        ),
+        "pre_injury_projected_points": pre_projection,
+        "post_injury_projected_points": post_projection,
+        "projection_penalty_pct": penalty_pct,
+        "projection_points_lost": round(
+            max(0.0, pre_projection - post_projection),
+            2,
+        ),
+        "message": message,
+    }
+
+
 def build_available_player_display(rankings):
     """Return only the decision columns needed on the draft-night board."""
     columns = select_display_columns(rankings, DRAFT_NIGHT_COLUMNS)
@@ -104,11 +236,31 @@ def build_available_player_display(rankings):
         column in display.columns
         for column in DRAFT_NIGHT_COLUMNS[:tier_label_index]
     )
-    display.insert(
-        tier_label_position,
-        "tier_label",
-        rankings.apply(get_display_tier_label, axis=1).to_numpy(),
+    if "tier_label" in display.columns:
+        display["tier_label"] = rankings.apply(
+            get_display_tier_label,
+            axis=1,
+        ).to_numpy()
+    else:
+        display.insert(
+            tier_label_position,
+            "tier_label",
+            rankings.apply(get_display_tier_label, axis=1).to_numpy(),
+        )
+
+    injury_index = DRAFT_NIGHT_COLUMNS.index("current_injury")
+    injury_position = sum(
+        column in display.columns
+        for column in DRAFT_NIGHT_COLUMNS[:injury_index]
     )
+    injury_values = rankings.apply(
+        build_current_injury_summary,
+        axis=1,
+    ).to_numpy()
+    if "current_injury" in display.columns:
+        display["current_injury"] = injury_values
+    else:
+        display.insert(injury_position, "current_injury", injury_values)
     return display
 
 
@@ -196,6 +348,7 @@ def build_player_ranking_explanation(rankings, player_name):
         "drivers": list(player.get("brain_reasons", []) or []),
         "warnings": list(player.get("brain_warnings", []) or []),
         "key_numbers": key_numbers,
+        "current_injury": build_current_injury_detail(player),
         "comparison": comparison,
     }
 

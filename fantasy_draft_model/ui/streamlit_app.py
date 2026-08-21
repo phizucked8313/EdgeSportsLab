@@ -361,6 +361,27 @@ def render_player_explanation(st, snapshot):
         f"{numbers['injury_risk_score']:.1f} injury risk"
     )
 
+    injury = explanation.get("current_injury") or {}
+    if injury.get("is_currently_injured"):
+        age_hours = injury.get("age_hours")
+        age_text = "unknown age" if age_hours is None else f"{age_hours:.0f}h"
+        source_quality = injury.get("source_quality") or "unknown"
+        st.markdown(
+            "**Current injury:** "
+            f"{injury.get('status') or 'Unknown'} · "
+            f"{injury.get('body_part') or 'body part unknown'} · "
+            f"{injury.get('practice_status') or 'UNKNOWN'} · "
+            f"{injury.get('projection_penalty_pct', 0.0):.1f}% projection penalty · "
+            f"{injury.get('pre_injury_projected_points', 0.0):.2f} → "
+            f"{injury.get('post_injury_projected_points', 0.0):.2f} projected pts · "
+            f"{injury.get('projection_points_lost', 0.0):.2f} pts lost · "
+            f"{age_text} · source quality {source_quality}"
+        )
+        if injury.get("message"):
+            st.markdown(f"**Injury note:** {injury['message']}")
+        if injury.get("research_override"):
+            st.markdown("**Injury research override:** active")
+
     drivers = explanation["drivers"]
     if drivers:
         st.markdown("**Why EdgeIQ likes him:** " + " · ".join(drivers))
