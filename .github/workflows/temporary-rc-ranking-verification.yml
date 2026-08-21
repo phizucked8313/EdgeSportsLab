@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  targeted:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,3 +22,5 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Verify keeper-aware scarcity
         run: python -m pytest tests/test_keeper_aware_available_pool_scarcity.py -q
+      - name: Run full test suite
+        run: python -m pytest -q
