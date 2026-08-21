@@ -1,5 +1,7 @@
 import pandas as pd
+import pytest
 
+from fantasy_draft_model.engines import projection_engine
 from fantasy_draft_model.engines.historical_baseline_engine import (
     add_historical_regression_metadata,
     build_multi_year_ppr_summary,
@@ -210,3 +212,61 @@ def test_attach_historical_regression_falls_back_neutral_when_loader_fails():
     assert result.loc[0, "historical_regression_multiplier"] == 1.00
     assert result.loc[0, "historical_regression_data_status"] == "FALLBACK_NEUTRAL"
     assert "historical source unavailable" in result.loc[0, "historical_regression_failure_reason"]
+
+
+def test_build_2026_projections_attaches_historical_context_before_projection(monkeypatch):
+    source = pd.DataFrame(
+        [
+            {
+                "player_id": "up",
+                "player_name_clean": "Veteran Up",
+                "position": "RB",
+                "is_fantasy_draftable": True,
+            }
+        ]
+    )
+    monkeypatch.setattr(projection_engine, "load_league_settings", lambda _league_key: {})
+    monkeypatch.setattr(projection_engine, "build_player_profiles", lambda _league_key: source.copy())
+
+    identity_stages = [
+        "add_rookie_projection_components",
+        "add_rookie_baseline_projection",
+        "add_per_game_metrics",
+        "add_rushing_usage_scores",
+        "add_qb_contact_exposure",
+        "calculate_opportunity_score",
+        "add_target_regression",
+        "add_manual_adjustments",
+    ]
+    for stage_name in identity_stages:
+        monkeypatch.setattr(
+            projection_engine,
+            stage_name,
+            lambda df: df.copy(),
+        )
+
+    def fake_injury_scores(df):
+        result = df.copy()
+        result["injury_risk_score"] = 0.0
+        return result
+
+    monkeypatch.setattr(projection_engine, "add_injury_scores", fake_injury_scores)
+
+    calls = {"historical": False}
+
+    def fake_historical(df):
+        calls["historical"] = True
+        result = df.copy()
+        result["historical_regression_multiplier"] = 1.10
+        return result
+
+    def stop_at_projection(df):
+        assert calls["historical"] is True
+        assert df.loc[0, "historical_regression_multiplier"] == 1.10
+        raise RuntimeError("stop after historical ordering check")
+
+    monkeypatch.setattr(projection_engine, "attach_historical_regression", fake_historical)
+    monkeypatch.setattr(projection_engine, "calculate_projection", stop_at_projection)
+
+    with pytest.raises(RuntimeError, match="stop after historical ordering check"):
+        projection_engine.build_2026_projections("drunk_sundays")
