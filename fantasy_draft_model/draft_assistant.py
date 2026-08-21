@@ -1,5 +1,9 @@
-from fantasy_draft_model.rankings import build_draft_rankings
-from fantasy_draft_model.rankings import recalculate_live_draft_score
+from fantasy_draft_model.rankings import (
+    add_available_pool_depletion_metadata,
+    build_draft_rankings,
+    infer_unavailable_position_counts,
+    recalculate_live_draft_score,
+)
 from fantasy_draft_model.engines.draft_brain_engine import add_draft_brain
 from fantasy_draft_model.engines.pressure_meter_engine import add_pressure_meter
 from fantasy_draft_model.engines.tier_engine import add_live_tier_scarcity
@@ -33,6 +37,11 @@ def build_draft_assistant_from_rankings(
         if column not in live_rankings.columns:
             live_rankings[column] = default
 
+    unavailable_counts = infer_unavailable_position_counts(live_rankings)
+    live_rankings = add_available_pool_depletion_metadata(
+        live_rankings,
+        unavailable_counts,
+    )
     live_rankings = add_live_tier_scarcity(live_rankings)
     live_rankings = recalculate_live_draft_score(live_rankings)
     live_rankings = add_pressure_meter(live_rankings)
