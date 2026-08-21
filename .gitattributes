@@ -1,0 +1,4 @@
+# The verified 2026 frozen snapshot was checksummed with CRLF line endings.
+# Force the same working-tree bytes on every OS so the immutable manifest
+# remains byte-verifiable without rewriting the frozen CSV or manifest.
+fantasy_draft_model/data/frozen/2026/edgeiq-top-300-2026.csv text eol=crlf

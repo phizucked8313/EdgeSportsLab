@@ -22,14 +22,16 @@ def test_runbook_covers_draft_night_operations_and_recovery():
     runbook = (ROOT / "docs" / "DRAFT_NIGHT_RUNBOOK.md").read_text(encoding="utf-8")
 
     required_text = (
-        ".\\.venv\\Scripts\\python.exe -m streamlit run fantasy_draft_model/ui/streamlit_app.py",
+        ".\\.venv\\Scripts\\python.exe -m streamlit run fantasy_draft_model/ui/frozen_streamlit_app.py",
         "Preflight",
         "Start New Draft",
         "Resume",
         "corrupt authoritative",
         "both copies invalid",
-        "offline cache",
-        "cache freshness",
+        "FROZEN/OFFLINE",
+        "frozen snapshot",
+        "K/DEF",
+        "fails closed",
         "artifact preservation",
         "archive",
         "python.exe -m pytest -q",
