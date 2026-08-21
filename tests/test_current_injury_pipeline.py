@@ -86,11 +86,12 @@ def test_projection_engine_applies_verified_injury_overrides_before_penalty():
     source = Path(
         "fantasy_draft_model/engines/projection_engine.py"
     ).read_text(encoding="utf-8")
+    build_source = source[source.index("def build_2026_projections"):]
 
     assert "current_injury_overrides" in source
     assert "attach_current_injury_overrides" in source
-    attach_index = source.index("attach_current_injury_overrides(")
-    penalty_index = source.index("apply_current_injury_projection_penalty(df)")
+    attach_index = build_source.index("attach_current_injury_overrides(df)")
+    penalty_index = build_source.index("apply_current_injury_projection_penalty(df)")
     assert attach_index < penalty_index
 
 
