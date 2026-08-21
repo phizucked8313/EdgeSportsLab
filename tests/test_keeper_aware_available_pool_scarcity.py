@@ -13,61 +13,45 @@ REPLACEMENT_RANKS = {"QB": 12, "RB": 34, "WR": 38, "TE": 12}
 KEEPER_COUNTS = {"QB": 0, "RB": 12, "WR": 2, "TE": 1}
 
 
+def _row(name, position, position_rank, projected_points, tier=4):
+    threshold = {"QB": 18.0, "RB": 24.5, "WR": 24.5, "TE": 12.0}[position]
+    return {
+        "player_name_clean": name,
+        "position": position,
+        "position_rank": position_rank,
+        "projected_points": projected_points,
+        "tier": tier,
+        "tier_next_threshold": threshold,
+        "tier_next_projection_drop": 36.0 if position == "QB" and position_rank == 1 else (24.0 if position == "TE" and position_rank == 2 else 0.0),
+        "tier_next_vorp_drop": 36.0 if position == "QB" and position_rank == 1 else (24.0 if position == "TE" and position_rank == 2 else 0.0),
+    }
+
+
 def _available_board():
-    return pd.DataFrame(
-        [
-            {
-                "player_name_clean": "Top RB",
-                "position": "RB",
-                "position_rank": 13,
-                "projected_points": 330.0,
-                "tier": 4,
-                "tier_next_threshold": 24.5,
-                "tier_next_projection_drop": 0.0,
-                "tier_next_vorp_drop": 0.0,
-            },
-            {
-                "player_name_clean": "Next RB",
-                "position": "RB",
-                "position_rank": 14,
-                "projected_points": 310.0,
-                "tier": 4,
-                "tier_next_threshold": 24.5,
-                "tier_next_projection_drop": 0.0,
-                "tier_next_vorp_drop": 0.0,
-            },
-            {
-                "player_name_clean": "Top WR",
-                "position": "WR",
-                "position_rank": 3,
-                "projected_points": 325.0,
-                "tier": 4,
-                "tier_next_threshold": 24.5,
-                "tier_next_projection_drop": 0.0,
-                "tier_next_vorp_drop": 0.0,
-            },
-            {
-                "player_name_clean": "Top QB",
-                "position": "QB",
-                "position_rank": 1,
-                "projected_points": 490.0,
-                "tier": 1,
-                "tier_next_threshold": 18.0,
-                "tier_next_projection_drop": 36.0,
-                "tier_next_vorp_drop": 36.0,
-            },
-            {
-                "player_name_clean": "Top TE",
-                "position": "TE",
-                "position_rank": 2,
-                "projected_points": 325.0,
-                "tier": 1,
-                "tier_next_threshold": 12.0,
-                "tier_next_projection_drop": 24.0,
-                "tier_next_vorp_drop": 24.0,
-            },
-        ]
+    rows = [
+        _row("Top RB", "RB", 13, 330.0),
+        _row("Next RB", "RB", 14, 310.0),
+        _row("Top WR", "WR", 3, 325.0),
+        _row("Top QB", "QB", 1, 490.0, tier=1),
+        _row("Top TE", "TE", 2, 325.0, tier=1),
+    ]
+    rows.extend(
+        _row(f"RB {rank}", "RB", rank, 300.0 - rank)
+        for rank in range(15, 35)
     )
+    rows.extend(
+        _row(f"WR {rank}", "WR", rank, 300.0 - rank)
+        for rank in range(4, 39)
+    )
+    rows.extend(
+        _row(f"QB {rank}", "QB", rank, 480.0 - rank, tier=2)
+        for rank in range(2, 13)
+    )
+    rows.extend(
+        _row(f"TE {rank}", "TE", rank, 300.0 - rank, tier=2)
+        for rank in range(3, 13)
+    )
+    return pd.DataFrame(rows)
 
 
 def test_keeper_depletion_metadata_tracks_remaining_position_supply():
@@ -76,13 +60,13 @@ def test_keeper_depletion_metadata_tracks_remaining_position_supply():
 
     assert result.loc["RB", "position_keeper_count"].iloc[0] == 12
     assert result.loc["RB", "position_remaining_replacement_demand"].iloc[0] == 22
-    assert result.loc["WR", "position_remaining_replacement_demand"] == 36
-    assert result.loc["TE", "position_remaining_replacement_demand"] == 11
-    assert result.loc["QB", "position_remaining_replacement_demand"] == 12
+    assert result.loc["WR", "position_remaining_replacement_demand"].iloc[0] == 36
+    assert result.loc["TE", "position_remaining_replacement_demand"].iloc[0] == 11
+    assert result.loc["QB", "position_remaining_replacement_demand"].iloc[0] == 12
 
     assert result.loc["RB", "keeper_depletion_multiplier"].iloc[0] > 1.20
-    assert result.loc["WR", "keeper_depletion_multiplier"] > 1.0
-    assert result.loc["QB", "keeper_depletion_multiplier"] == 1.0
+    assert result.loc["WR", "keeper_depletion_multiplier"].iloc[0] > 1.0
+    assert result.loc["QB", "keeper_depletion_multiplier"].iloc[0] == 1.0
 
 
 def test_available_supply_scarcity_promotes_depleted_rb_wr_over_one_start_qb_te():
