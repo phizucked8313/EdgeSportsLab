@@ -32,5 +32,5 @@ jobs:
           tests/test_advanced_assistant_pipeline.py
           tests/test_qb_1qb_economics.py
           -q
-      - name: Verify full suite
+      - name: Verify full suite after sortable test updates
         run: python -m pytest -q
