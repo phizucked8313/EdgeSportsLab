@@ -54,6 +54,141 @@ def _canonicalize_snapshot_values(board):
     return result
 
 
+def _clean_text(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def audit_depth_chart(board, depth):
+    """Attach latest depth evidence, preferring stable GSIS identity."""
+    players = board.copy(deep=True).reset_index(drop=True)
+    source = depth.copy(deep=True)
+    for column in ("gsis_id", "player_name", "team", "pos_abb", "pos_rank", "edgeiq_role", "dt"):
+        if column not in source.columns:
+            source[column] = None
+    source["_team"] = source["team"].astype(str).str.upper().replace(TEAM_ALIASES)
+    source["_position"] = source["pos_abb"].astype(str).str.upper()
+    source["_name"] = source["player_name"].map(normalize_player_name)
+    records = source.to_dict("records")
+    by_id = {
+        _clean_text(row["gsis_id"]): row
+        for row in records
+        if _clean_text(row["gsis_id"])
+    }
+    by_fallback = {
+        (row["_name"], row["_team"], row["_position"]): row
+        for row in records
+        if row["_name"] and row["_team"] and row["_position"]
+    }
+    evidence = []
+    for row in players.itertuples(index=False):
+        match = by_id.get(_clean_text(getattr(row, "player_id", "")))
+        method = "gsis_id" if match is not None else ""
+        if match is None:
+            key = (
+                normalize_player_name(getattr(row, "player_name_clean", "")),
+                TEAM_ALIASES.get(_clean_text(getattr(row, "team", "")).upper(), _clean_text(getattr(row, "team", "")).upper()),
+                _clean_text(getattr(row, "position", "")).upper(),
+            )
+            match = by_fallback.get(key)
+            method = "name_team_position" if match is not None else ""
+        evidence.append(
+            {
+                "depth_match_method": method,
+                "depth_pos_rank": match.get("pos_rank") if match is not None else None,
+                "depth_role": match.get("edgeiq_role") if match is not None else None,
+                "depth_timestamp": _clean_text(match.get("dt")) if match is not None else "",
+            }
+        )
+    enriched = pd.concat([players, pd.DataFrame(evidence)], axis=1)
+    missing = enriched.loc[enriched["depth_match_method"].eq(""), "player_name_clean"].tolist()
+    return (
+        {
+            "reviewed_count": len(enriched),
+            "matched_count": len(enriched) - len(missing),
+            "missing_count": len(missing),
+            "missing_players": missing,
+        },
+        enriched,
+    )
+
+
+def audit_rookies(board, expected_count=50):
+    """Return a complete, serializable review of every selected rookie."""
+    rookies = board.loc[board.get("is_rookie", False).fillna(False).astype(bool)].copy()
+    required = (
+        "player_id", "player_name_clean", "team", "position", "rookie_year",
+        "draft_number", "status", "on_current_roster", "depth_pos_rank", "depth_role",
+        "projected_points", "projection_confidence",
+    )
+    failures = []
+    if len(rookies) != expected_count:
+        failures.append(f"expected {expected_count} rookies, found {len(rookies)}")
+    for row in rookies.itertuples(index=False):
+        missing = [column for column in required if column not in rookies or pd.isna(getattr(row, column, None)) or _clean_text(getattr(row, column, "")) == ""]
+        if pd.to_numeric(pd.Series([getattr(row, "rookie_year", None)]), errors="coerce").iloc[0] != 2026:
+            missing.append("rookie_year=2026")
+        if missing:
+            failures.append(f"{getattr(row, 'player_name_clean', '<unknown>')}: {sorted(set(missing))}")
+    players = []
+    for row in rookies.itertuples(index=False):
+        depth_rank = pd.to_numeric(
+            pd.Series([getattr(row, "depth_pos_rank", None)]),
+            errors="coerce",
+        ).iloc[0]
+        players.append(
+            {
+                "player_id": _clean_text(getattr(row, "player_id", "")),
+                "player_name": _clean_text(getattr(row, "player_name_clean", "")),
+                "team": _clean_text(getattr(row, "team", "")),
+                "position": _clean_text(getattr(row, "position", "")),
+                "rookie_year": int(getattr(row, "rookie_year")),
+                "draft_number": int(getattr(row, "draft_number")),
+                "roster_status": _clean_text(getattr(row, "status", "")),
+                "depth_rank": None if pd.isna(depth_rank) else int(depth_rank),
+                "projected_role": _clean_text(getattr(row, "depth_role", "")),
+                "projected_points": float(getattr(row, "projected_points")),
+                "projection_confidence": float(getattr(row, "projection_confidence")),
+            }
+        )
+    return {"reviewed_count": len(rookies), "failures": failures, "players": players}
+
+
+def audit_injuries(board, retrieved_at):
+    """Classify every current injury and block unverified material statuses."""
+    injured = board.loc[board.get("is_currently_injured", False).fillna(False).astype(bool)].copy()
+    material = {"IR", "PUP", "OUT", "DOUBTFUL"}
+    blocking = []
+    records = []
+    for row in injured.itertuples(index=False):
+        status = _clean_text(getattr(row, "current_injury_status", "")).upper()
+        source_timestamp = _clean_text(getattr(row, "current_injury_source_timestamp", ""))
+        timeline_source = _clean_text(getattr(row, "current_injury_timeline_source", ""))
+        expected_return = _clean_text(getattr(row, "current_injury_expected_return", ""))
+        if status in material and not (source_timestamp or (timeline_source and expected_return)):
+            blocking.append(_clean_text(getattr(row, "player_name_clean", "")))
+        records.append(
+            {
+                "player_name": _clean_text(getattr(row, "player_name_clean", "")),
+                "team": _clean_text(getattr(row, "team", "")),
+                "position": _clean_text(getattr(row, "position", "")),
+                "status": status,
+                "body_part": _clean_text(getattr(row, "current_injury_body_part", "")),
+                "source": _clean_text(getattr(row, "current_injury_source", "")),
+                "source_timestamp": source_timestamp,
+                "timeline_source": timeline_source,
+                "expected_return": expected_return,
+                "retrieved_at": retrieved_at,
+            }
+        )
+    return {
+        "reviewed_count": len(injured),
+        "blocking_players": blocking,
+        "players": records,
+    }
+
+
 def select_top_300(board):
     if not isinstance(board, pd.DataFrame):
         raise ValueError("production board must be a pandas DataFrame")

@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from fantasy_draft_model.final_snapshot import (
+    audit_depth_chart,
+    audit_injuries,
+    audit_rookies,
     build_freeze_manifest,
     load_frozen_snapshot_offline,
     normalize_player_name,
@@ -195,3 +198,69 @@ def test_frozen_snapshot_round_trip_is_checksum_verified_and_offline(tmp_path):
 
 def test_normalized_name_handles_suffix_punctuation_and_accents():
     assert normalize_player_name("Audric Estimé Jr.") == "audric estime jr"
+
+
+def test_depth_audit_matches_by_gsis_before_name_team_aliases():
+    board = select_top_300(_board())
+    board.loc[0, ["player_name_clean", "team"]] = ["Different Display", "LAR"]
+    depth = pd.DataFrame(
+        [
+            {
+                "gsis_id": board.loc[0, "player_id"],
+                "player_name": "Source Display",
+                "team": "LA",
+                "pos_abb": board.loc[0, "position"],
+                "pos_rank": 1,
+                "edgeiq_role": "STARTER",
+                "dt": "2026-08-21T12:00:00+00:00",
+            }
+        ]
+    )
+
+    report, enriched = audit_depth_chart(board.iloc[:1], depth)
+
+    assert report["matched_count"] == 1
+    assert report["missing_players"] == []
+    assert enriched.loc[0, "depth_match_method"] == "gsis_id"
+
+
+def test_rookie_audit_requires_complete_identity_capital_roster_and_role_review():
+    rookie = select_top_300(_board()).iloc[:1].assign(
+        is_rookie=True,
+        rookie_year=2026,
+        draft_number=12,
+        status="ACT",
+        on_current_roster=True,
+        depth_pos_rank=2,
+        depth_role="BACKUP",
+    )
+
+    report = audit_rookies(rookie, expected_count=1)
+
+    assert report["reviewed_count"] == 1
+    assert report["failures"] == []
+    assert report["players"][0]["projected_role"] == "BACKUP"
+
+
+def test_injury_audit_blocks_unreconciled_ir_pup_out_and_doubtful():
+    injuries = pd.DataFrame(
+        [
+            {
+                "player_name_clean": "Unresolved Player",
+                "team": "CLE",
+                "position": "WR",
+                "is_currently_injured": True,
+                "current_injury_status": "IR",
+                "current_injury_body_part": "Knee",
+                "current_injury_source": "Sleeper",
+                "current_injury_source_timestamp": "",
+                "current_injury_timeline_source": "",
+                "current_injury_expected_return": "",
+            }
+        ]
+    )
+
+    report = audit_injuries(injuries, retrieved_at="2026-08-21T12:00:00+00:00")
+
+    assert report["reviewed_count"] == 1
+    assert report["blocking_players"] == ["Unresolved Player"]
