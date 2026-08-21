@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - draft-night-ranking-rc
+  pull_request:
+    branches:
+      - live-war-room-core
   workflow_dispatch:
 
 jobs:
