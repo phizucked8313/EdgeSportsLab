@@ -24,3 +24,75 @@ jobs:
         run: python -m pytest tests/test_keeper_aware_available_pool_scarcity.py -q
       - name: Run full test suite
         run: python -m pytest -q
+      - name: Audit live keeper-filtered opening board
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from fantasy_draft_model.rankings import build_draft_rankings
+          from fantasy_draft_model.keepers import load_keepers
+          from fantasy_draft_model.ui.draft_war_room import filter_available_players
+          from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
+
+          base = build_draft_rankings("drunk_sundays")
+          keepers = load_keepers("Drunk Sundays")
+          keeper_names = keepers["player_name"].dropna().astype(str).tolist()
+          state = {
+              "manual_picks": [],
+              "keeper_reservations": [
+                  {"player_name": name} for name in keeper_names
+              ],
+          }
+          available = filter_available_players(base, state)
+          removed = len(base) - len(available)
+          assert removed == len(keeper_names), (
+              f"Expected {len(keeper_names)} keepers removed, got {removed}"
+          )
+
+          board = build_draft_assistant_from_rankings(
+              available,
+              draft_context={"picks_until_user": 8, "drafted_picks": []},
+          )
+          position_counts = (
+              board.groupby("position")["position_unavailable_demand_count"]
+              .max()
+              .fillna(0)
+              .astype(int)
+              .to_dict()
+          )
+          expected = {"QB": 0, "RB": 12, "WR": 2, "TE": 1}
+          observed = {position: int(position_counts.get(position, 0)) for position in expected}
+          print("KEEPER_DEPLETION", observed)
+          assert observed == expected, f"Expected {expected}, got {observed}"
+
+          columns = [
+              "player_name_clean",
+              "position",
+              "position_rank",
+              "draft_rank",
+              "projected_points",
+              "vorp",
+              "tier_scarcity_score",
+              "position_replacement_rank",
+              "position_remaining_replacement_demand",
+              "position_unavailable_demand_count",
+              "brain_score",
+              "brain_recommendation",
+          ]
+          print("\nOPENING TOP 30")
+          print(board[columns].head(30).round(2).to_string(index=False))
+          print("\nTOP 12 POSITION MIX", board.head(12)["position"].value_counts().to_dict())
+          print("TOP 24 POSITION MIX", board.head(24)["position"].value_counts().to_dict())
+
+          names = [
+              "Kenneth Walker III",
+              "Breece Hall",
+              "Ja'Marr Chase",
+              "Amon-Ra St. Brown",
+              "CeeDee Lamb",
+              "Trey McBride",
+              "Josh Allen",
+          ]
+          audit = board[board["player_name_clean"].isin(names)][columns]
+          print("\nAUDIT COHORT")
+          print(audit.round(2).to_string(index=False))
+          PY
