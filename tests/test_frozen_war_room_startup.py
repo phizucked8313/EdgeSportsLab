@@ -2,7 +2,8 @@ from hashlib import sha256
 
 import pandas as pd
 
-from fantasy_draft_model.ui import streamlit_app
+from fantasy_draft_model import draft_night_board
+from fantasy_draft_model.ui import frozen_streamlit_app, streamlit_app
 
 
 EXPECTED_FROZEN_SHA256 = (
@@ -11,9 +12,6 @@ EXPECTED_FROZEN_SHA256 = (
 
 
 def test_production_board_loader_uses_frozen_baseline_and_offline_special_teams(monkeypatch):
-    loader = getattr(streamlit_app, "load_production_draft_night_board", None)
-    assert callable(loader), "production frozen/offline board loader is missing"
-
     monkeypatch.setattr(
         streamlit_app,
         "build_draft_rankings",
@@ -29,7 +27,9 @@ def test_production_board_loader_uses_frozen_baseline_and_offline_special_teams(
         ),
     )
 
-    board, status = loader("drunk_sundays")
+    board, status = draft_night_board.load_production_draft_night_board(
+        "drunk_sundays"
+    )
 
     assert status.source == "FROZEN/OFFLINE"
     assert len(board) == 324
@@ -48,17 +48,16 @@ def test_production_board_loader_uses_frozen_baseline_and_offline_special_teams(
 
 
 def test_production_frozen_bytes_still_match_verified_checksum():
-    csv_path = getattr(streamlit_app, "FROZEN_TOP_300_CSV", None)
-    assert csv_path is not None, "production frozen CSV path is not exposed"
-
-    assert sha256(csv_path.read_bytes()).hexdigest() == EXPECTED_FROZEN_SHA256
+    assert (
+        sha256(draft_night_board.FROZEN_TOP_300_CSV.read_bytes()).hexdigest()
+        == EXPECTED_FROZEN_SHA256
+    )
 
 
 def test_special_teams_rows_are_searchable_without_fake_frozen_ranks():
-    loader = getattr(streamlit_app, "load_production_draft_night_board", None)
-    assert callable(loader), "production frozen/offline board loader is missing"
-
-    board, _status = loader("drunk_sundays")
+    board, _status = draft_night_board.load_production_draft_night_board(
+        "drunk_sundays"
+    )
 
     defenses = board.loc[board["position"].eq("DEF")]
     kickers = board.loc[board["position"].eq("K")]
@@ -67,5 +66,61 @@ def test_special_teams_rows_are_searchable_without_fake_frozen_ranks():
     assert "Brandon Aubrey" in kickers["player_name_clean"].tolist()
     assert defenses["draft_rank"].isna().all()
     assert kickers["draft_rank"].isna().all()
-    assert pd.to_numeric(defenses["supplemental_position_rank"], errors="raise").tolist() == list(range(1, 13))
-    assert pd.to_numeric(kickers["supplemental_position_rank"], errors="raise").tolist() == list(range(1, 13))
+    assert pd.to_numeric(
+        defenses["supplemental_position_rank"], errors="raise"
+    ).tolist() == list(range(1, 13))
+    assert pd.to_numeric(
+        kickers["supplemental_position_rank"], errors="raise"
+    ).tolist() == list(range(1, 13))
+
+
+def test_live_view_scores_only_frozen_rows_and_keeps_special_teams_available(monkeypatch):
+    state = {
+        "league_name": "Drunk Sundays",
+        "league_key": "drunk_sundays",
+        "user_team": "BLKWDW'S",
+        "team_count": 12,
+        "draft_rounds": 15,
+        "current_pick": 1,
+        "manual_picks": [],
+        "keeper_reservations": [],
+        "processed_keeper_picks": [],
+    }
+    board, status = draft_night_board.load_production_draft_night_board(
+        "drunk_sundays"
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        streamlit_app,
+        "load_or_initialize_war_room_state",
+        lambda: state,
+    )
+    monkeypatch.setattr(
+        frozen_streamlit_app,
+        "build_live_draft_context",
+        lambda _state: {"picks_until_user": 8},
+    )
+
+    def fake_assistant(rankings, draft_context=None):
+        captured["positions"] = set(rankings["position"])
+        result = rankings.copy()
+        result["brain_score"] = 50.0
+        return result
+
+    monkeypatch.setattr(
+        frozen_streamlit_app,
+        "build_draft_assistant_from_rankings",
+        fake_assistant,
+    )
+
+    snapshot = frozen_streamlit_app.build_production_live_view(
+        base_rankings=board,
+        data_status=status,
+    )
+
+    assert "K" not in captured["positions"]
+    assert "DEF" not in captured["positions"]
+    assert set(snapshot["available"]["position"]) >= {"QB", "RB", "WR", "TE", "K", "DEF"}
+    supplemental = snapshot["available"]["is_supplemental"].fillna(False).astype(bool)
+    assert snapshot["available"].loc[supplemental, "brain_score"].isna().all()
