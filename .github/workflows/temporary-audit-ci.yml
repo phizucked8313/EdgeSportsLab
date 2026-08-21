@@ -91,6 +91,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import pandas as pd
+          import nflreadpy as nfl
 
           from fantasy_draft_model.rankings import build_draft_rankings
           from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
@@ -103,10 +104,7 @@ jobs:
           base = build_draft_rankings("drunk_sundays")
           board = build_draft_assistant_from_rankings(
               base,
-              draft_context={
-                  "picks_until_user": 8,
-                  "drafted_picks": [],
-              },
+              draft_context={"picks_until_user": 8, "drafted_picks": []},
           ).copy().reset_index(drop=True)
           board.insert(0, "live_order", range(1, len(board) + 1))
 
@@ -132,11 +130,7 @@ jobs:
           board["depth_role"] = ""
           board["depth_rank"] = pd.NA
           if not depth.empty and "gsis_id" in depth.columns and "player_id" in board.columns:
-              depth_lookup = (
-                  depth.dropna(subset=["gsis_id"])
-                  .drop_duplicates(subset=["gsis_id"])
-                  .set_index("gsis_id")
-              )
+              depth_lookup = depth.dropna(subset=["gsis_id"]).drop_duplicates(subset=["gsis_id"]).set_index("gsis_id")
               if "edgeiq_role" in depth_lookup.columns:
                   board["depth_role"] = board["player_id"].map(depth_lookup["edgeiq_role"]).fillna("")
               if "pos_rank" in depth_lookup.columns:
@@ -147,11 +141,10 @@ jobs:
                   return pd.Series(default, index=board.index, dtype=float)
               return pd.to_numeric(board[name], errors="coerce").fillna(default)
 
-          board["team_changed"] = (
-              board.get("historical_team", pd.Series("", index=board.index)).fillna("").astype(str).str.strip().ne("")
-              & board.get("team", pd.Series("", index=board.index)).fillna("").astype(str).str.strip().ne("")
-              & board["historical_team"].astype(str).str.upper().ne(board["team"].astype(str).str.upper())
-          )
+          alias = {"ARI": "AZ", "JAC": "JAX", "LA": "LAR", "OAK": "LV", "SD": "LAC", "STL": "LAR"}
+          hist_team = board.get("historical_team", pd.Series("", index=board.index)).fillna("").astype(str).str.upper().replace(alias)
+          current_team = board.get("team", pd.Series("", index=board.index)).fillna("").astype(str).str.upper().replace(alias)
+          board["team_changed"] = hist_team.str.strip().ne("") & current_team.str.strip().ne("") & hist_team.ne(current_team)
 
           board["draft_vorp_component"] = (num("vorp_score") * 0.35).round(3)
           board["draft_edgescore_component"] = (num("edgescore") * 0.25).round(3)
@@ -180,18 +173,12 @@ jobs:
           flags = []
           for idx in board.index:
               row_flags = []
-              if bool(board.at[idx, "team_changed"]):
-                  row_flags.append("2026_TEAM_CHANGE")
-              if starter.at[idx] and bool(board.at[idx, "team_changed"]):
-                  row_flags.append("STARTER_TEAM_CHANGE_REVIEW")
-              if starter.at[idx] and (rb_low_usage.at[idx] or pass_low_usage.at[idx]):
-                  row_flags.append("LOW_2025_USAGE_CURRENT_STARTER")
-              if injured.at[idx]:
-                  row_flags.extend(["CURRENT_INJURY", "EXPECTED_RETURN_NOT_MODELED"])
-              if stale.at[idx]:
-                  row_flags.append("STALE_INJURY")
-              if early_qb_te.at[idx]:
-                  row_flags.append("ONE_QB_EARLY_QB_TE_REVIEW")
+              if bool(board.at[idx, "team_changed"]): row_flags.append("2026_TEAM_CHANGE")
+              if starter.at[idx] and bool(board.at[idx, "team_changed"]): row_flags.append("STARTER_TEAM_CHANGE_REVIEW")
+              if starter.at[idx] and (rb_low_usage.at[idx] or pass_low_usage.at[idx]): row_flags.append("LOW_2025_USAGE_CURRENT_STARTER")
+              if injured.at[idx]: row_flags.extend(["CURRENT_INJURY", "EXPECTED_RETURN_NOT_MODELED"])
+              if stale.at[idx]: row_flags.append("STALE_INJURY")
+              if early_qb_te.at[idx]: row_flags.append("ONE_QB_EARLY_QB_TE_REVIEW")
               flags.append("|".join(row_flags))
           board["audit_flags"] = flags
 
@@ -221,15 +208,34 @@ jobs:
           audit[board["team_changed"]].to_csv(out / "team_changes.csv", index=False)
           audit[early_qb_te].to_csv(out / "early_qb_te.csv", index=False)
 
-          focus_names = [
-              "Ja'Marr Chase", "Amon-Ra St. Brown", "Trey McBride", "Josh Allen",
-              "Kenneth Walker III", "Breece Hall",
-          ]
-          focus = audit[audit["player_name_clean"].isin(focus_names)].copy()
-          focus.to_csv(out / "focus_players.csv", index=False)
-          print("\nEDGEIQ FOCUS AUDIT\n")
-          print(focus.to_string(index=False))
-          print(f"\nAUDIT_ROWS={len(audit)} INJURED_ROWS={int(injured.sum())} TEAM_CHANGES={int(board['team_changed'].sum())} EARLY_QB_TE={int(early_qb_te.sum())}")
+          focus_names = ["Ja'Marr Chase", "Amon-Ra St. Brown", "Trey McBride", "Josh Allen", "Kenneth Walker III", "Breece Hall", "Justin Jefferson", "CeeDee Lamb"]
+          audit[audit["player_name_clean"].isin(focus_names)].to_csv(out / "focus_players.csv", index=False)
+
+          # Multi-year diagnostic only: use standard PPR to quantify how much the current
+          # baseline is anchored to 2025 versus 2023-2025 recent history.
+          hist = nfl.load_player_stats(seasons=[2023, 2024, 2025]).to_pandas()
+          if "season_type" in hist.columns:
+              hist = hist[hist["season_type"] == "REG"].copy()
+          hist["ppr"] = pd.to_numeric(hist.get("fantasy_points_ppr"), errors="coerce").fillna(0.0)
+          yearly = (
+              hist.groupby(["player_id", "season"], as_index=False)
+              .agg(games=("week", "count"), ppr_points=("ppr", "sum"))
+          )
+          yearly["ppr_per_game"] = yearly["ppr_points"] / yearly["games"].clip(lower=1)
+          weights = {2025: 0.55, 2024: 0.30, 2023: 0.15}
+          yearly["weight"] = yearly["season"].map(weights).fillna(0.0)
+          yearly["weighted"] = yearly["ppr_per_game"] * yearly["weight"]
+          summary = (
+              yearly.groupby("player_id", as_index=False)
+              .agg(weighted_sum=("weighted", "sum"), weight_sum=("weight", "sum"), seasons=("season", "nunique"))
+          )
+          summary["weighted_3yr_ppr_pg"] = summary["weighted_sum"] / summary["weight_sum"].replace(0, pd.NA)
+          p2025 = yearly[yearly["season"] == 2025][["player_id", "ppr_per_game"]].rename(columns={"ppr_per_game": "ppr_pg_2025"})
+          histdiag = board[["player_id", "player_name_clean", "position", "team", "draft_rank"]].merge(summary[["player_id", "weighted_3yr_ppr_pg", "seasons"]], on="player_id", how="left").merge(p2025, on="player_id", how="left")
+          histdiag["three_year_vs_2025_pct"] = ((histdiag["weighted_3yr_ppr_pg"] / histdiag["ppr_pg_2025"]) - 1.0) * 100.0
+          histdiag.to_csv(out / "multi_year_baseline_diagnostic.csv", index=False)
+          histdiag[histdiag["player_name_clean"].isin(focus_names + ["Kenneth Walker III"])].to_csv(out / "focus_multi_year.csv", index=False)
+          print(histdiag[histdiag["player_name_clean"].isin(focus_names + ["Kenneth Walker III"])].to_string(index=False))
           PY
       - name: Upload ranking audit artifacts
         uses: actions/upload-artifact@v4
