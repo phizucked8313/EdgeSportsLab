@@ -67,8 +67,15 @@ def _stub_rankings_pipeline(monkeypatch):
         "build_2026_projections",
         lambda league_key: offense.copy(),
     )
+    monkeypatch.setattr(
+        rankings,
+        "calculate_replacement_ranks",
+        lambda df, league_settings: {"QB": 12, "RB": 34, "WR": 38, "TE": 12},
+    )
 
     for name in [
+        "add_position_demand_metadata",
+        "add_live_tier_scarcity",
         "calculate_draft_score",
         "create_overall_rankings",
         "add_position_rank_label",
@@ -78,7 +85,7 @@ def _stub_rankings_pipeline(monkeypatch):
         monkeypatch.setattr(
             rankings,
             name,
-            lambda df: df.copy(),
+            lambda df, *args, **kwargs: df.copy(),
         )
 
     monkeypatch.setattr(
