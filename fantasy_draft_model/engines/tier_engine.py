@@ -30,6 +30,8 @@ TIER_DEPTH_FACTORS = {
     4: 0.55,
 }
 
+POSITION_SUPPLY_WEIGHT = 0.60
+
 
 def get_tier_threshold(position, current_tier):
     base = float(POSITION_TIER_THRESHOLDS.get(position, 15))
@@ -335,8 +337,11 @@ def add_tier_boundary_metadata(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 
 def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Score scarcity from the players currently remaining in each tier.
+    """Score live scarcity from tier cliffs plus remaining position supply.
+
+    Stable base tiers still provide cliff information, but a second supply
+    curve prevents exhausted keeper-heavy positions from becoming invisible
+    merely because all remaining players share one broad lower tier.
     """
 
     df = df.copy()
@@ -344,14 +349,14 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
     if "tier" not in df.columns:
         df["tier"] = pd.NA
 
-    tier_values = pd.to_numeric(df["tier"], errors="coerce")
-    supported_position = (
+    position_values = (
         df.get("position", pd.Series("", index=df.index))
         .astype(str)
         .str.strip()
         .str.upper()
-        .isin(POSITION_TIER_THRESHOLDS)
     )
+    tier_values = pd.to_numeric(df["tier"], errors="coerce")
+    supported_position = position_values.isin(POSITION_TIER_THRESHOLDS)
     tierless_mask = tier_values.isna() | tier_values.le(0) | ~supported_position
     tier_values = tier_values.mask(tierless_mask).astype("Int64")
     df["tier"] = tier_values
@@ -406,12 +411,105 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         ),
         errors="coerce",
     ).replace([float("inf"), float("-inf")], 1.0).fillna(1.0)
+    supply_demand_multiplier = pd.to_numeric(
+        df.get(
+            "position_supply_demand_multiplier",
+            demand_multiplier,
+        ),
+        errors="coerce",
+    ).replace([float("inf"), float("-inf")], 1.0).fillna(1.0)
+    keeper_depletion_multiplier = pd.to_numeric(
+        df.get(
+            "keeper_depletion_multiplier",
+            pd.Series(1.0, index=df.index),
+        ),
+        errors="coerce",
+    ).replace([float("inf"), float("-inf")], 1.0).fillna(1.0).clip(lower=1.0)
 
-    df["tier_scarcity_score"] = (
-        raw_scarcity * demand_multiplier
-    ).clip(lower=0.0, upper=100.0).round(2)
+    if "position_supply_demand_multiplier" in df.columns:
+        tier_signal = (
+            raw_scarcity
+            * supply_demand_multiplier
+            * keeper_depletion_multiplier
+        ).clip(lower=0.0, upper=100.0)
+    else:
+        tier_signal = (
+            raw_scarcity * demand_multiplier
+        ).clip(lower=0.0, upper=100.0)
+
+    df["position_available_rank"] = 0
+    df["position_supply_pressure"] = 0.0
+    df["position_supply_scarcity_score"] = 0.0
+
+    replacement_demand = pd.to_numeric(
+        df.get(
+            "position_replacement_rank",
+            pd.Series(0.0, index=df.index),
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+    remaining_demand = pd.to_numeric(
+        df.get(
+            "position_remaining_replacement_demand",
+            replacement_demand,
+        ),
+        errors="coerce",
+    ).fillna(0.0).clip(lower=0.0)
+
+    supply_enabled = (
+        supported_position
+        & remaining_demand.gt(0.0)
+        & ("projected_points" in df.columns)
+        & ("position_supply_demand_multiplier" in df.columns)
+    )
+    if bool(supply_enabled.any()):
+        projected_points = pd.to_numeric(
+            df["projected_points"],
+            errors="coerce",
+        ).fillna(float("-inf"))
+        available_rank = projected_points.groupby(position_values).rank(
+            method="first",
+            ascending=False,
+        )
+        df.loc[supply_enabled, "position_available_rank"] = (
+            available_rank.loc[supply_enabled].astype(int)
+        )
+
+        rank_numeric = pd.to_numeric(
+            df["position_available_rank"],
+            errors="coerce",
+        ).fillna(0.0)
+        supply_pressure = pd.Series(0.0, index=df.index, dtype=float)
+        supply_pressure.loc[supply_enabled] = (
+            (
+                remaining_demand.loc[supply_enabled]
+                - rank_numeric.loc[supply_enabled]
+                + 1.0
+            )
+            / remaining_demand.loc[supply_enabled]
+            * 100.0
+        ).clip(lower=0.0, upper=100.0)
+        df["position_supply_pressure"] = supply_pressure.round(2)
+
+        supply_signal = (
+            supply_pressure
+            * POSITION_SUPPLY_WEIGHT
+            * supply_demand_multiplier
+            * keeper_depletion_multiplier
+        ).clip(lower=0.0, upper=100.0)
+        df["position_supply_scarcity_score"] = supply_signal.round(2)
+    else:
+        supply_signal = pd.Series(0.0, index=df.index, dtype=float)
+
+    df["tier_scarcity_score"] = pd.concat(
+        [tier_signal, supply_signal],
+        axis=1,
+    ).max(axis=1).clip(lower=0.0, upper=100.0).round(2)
     df.loc[tierless_mask, "raw_tier_scarcity_score"] = 0.0
-    df.loc[tierless_mask, "tier_scarcity_score"] = 0.0
+    df.loc[~supported_position, "position_available_rank"] = 0
+    df.loc[~supported_position, "position_supply_pressure"] = 0.0
+    df.loc[~supported_position, "position_supply_scarcity_score"] = 0.0
+    df.loc[~supported_position, "tier_scarcity_score"] = 0.0
 
     return df
 
