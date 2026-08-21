@@ -132,3 +132,76 @@ def test_live_assistant_applies_available_pool_depletion_before_scarcity(monkeyp
 
     assert observed["rb_remaining"] == 2
     assert observed["rb_unavailable"] == 2
+
+
+def test_built_rankings_carry_replacement_demand_metadata_for_live_keeper_math(monkeypatch):
+    projections = pd.DataFrame(
+        [
+            {
+                "player_name_clean": "QB A",
+                "position": "QB",
+                "position_rank": 1,
+                "team": "KC",
+                "projected_points": 390.0,
+                "replacement_points": 300.0,
+                "vorp": 90.0,
+                "edgescore": 90.0,
+                "projection_confidence": 95.0,
+                "tier_scarcity_score": 0.0,
+            },
+            {
+                "player_name_clean": "RB A",
+                "position": "RB",
+                "position_rank": 1,
+                "team": "KC",
+                "projected_points": 310.0,
+                "replacement_points": 180.0,
+                "vorp": 130.0,
+                "edgescore": 92.0,
+                "projection_confidence": 95.0,
+                "tier_scarcity_score": 0.0,
+            },
+            {
+                "player_name_clean": "WR A",
+                "position": "WR",
+                "position_rank": 1,
+                "team": "CIN",
+                "projected_points": 330.0,
+                "replacement_points": 190.0,
+                "vorp": 140.0,
+                "edgescore": 94.0,
+                "projection_confidence": 96.0,
+                "tier_scarcity_score": 0.0,
+            },
+            {
+                "player_name_clean": "TE A",
+                "position": "TE",
+                "position_rank": 1,
+                "team": "ARI",
+                "projected_points": 260.0,
+                "replacement_points": 160.0,
+                "vorp": 100.0,
+                "edgescore": 88.0,
+                "projection_confidence": 94.0,
+                "tier_scarcity_score": 0.0,
+            },
+        ]
+    )
+    empty_special_teams = pd.DataFrame(
+        columns=["player_name_clean", "position", "position_rank", "team"]
+    )
+
+    monkeypatch.setattr(rankings, "build_2026_projections", lambda _league: projections)
+    monkeypatch.setattr(rankings, "add_football_intelligence", lambda frame: frame.copy())
+    monkeypatch.setattr(rankings, "build_kicker_rankings", lambda: empty_special_teams.copy())
+    monkeypatch.setattr(rankings, "build_defense_rankings", lambda: empty_special_teams.copy())
+
+    built = rankings.build_draft_rankings("drunk_sundays")
+    offense = built[built["position"].isin(["QB", "RB", "WR", "TE"])]
+
+    assert "position_replacement_rank" in offense.columns
+    assert "position_remaining_replacement_demand" in offense.columns
+    assert offense["position_replacement_rank"].gt(0).all()
+    assert offense["position_remaining_replacement_demand"].equals(
+        offense["position_replacement_rank"]
+    )
