@@ -18,6 +18,9 @@ from fantasy_draft_model.integrations.current_injury_normalizer import (
     load_normalized_current_injuries,
     attach_current_injury_state,
 )
+from fantasy_draft_model.integrations.current_injury_overrides import (
+    attach_current_injury_overrides,
+)
 from fantasy_draft_model.models.team_injury_impact_engine import (
     add_team_injury_impact,
 )
@@ -355,6 +358,7 @@ def build_2026_projections(league_key):
 
     current_injuries = load_normalized_current_injuries()
     df = attach_current_injury_state(df, current_injuries)
+    df = attach_current_injury_overrides(df)
     current_injuries = add_team_injury_impact(current_injuries)
     df = add_player_opportunity_ripple(df, current_injuries)
 
