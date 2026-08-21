@@ -178,13 +178,14 @@ def neutralize_positive_ripple_for_current_injuries(df):
 
 
 def apply_current_injury_projection_penalty(df):
-    """Apply a bounded direct penalty for trusted current injury severity."""
+    """Apply status severity plus verified missed-time availability penalties."""
     result = df.copy()
     result["pre_current_injury_projected_points"] = pd.to_numeric(
         result["projected_points"],
         errors="coerce",
     )
     result["current_injury_projection_penalty"] = 0.0
+    result["current_injury_timeline_penalty"] = 0.0
     result["current_injury_projection_multiplier"] = 1.0
 
     injured = (
@@ -210,16 +211,35 @@ def apply_current_injury_projection_penalty(df):
         if "current_injury_severity" in result.columns
         else pd.Series(0.0, index=result.index)
     )
+    expected_games_missed = (
+        pd.to_numeric(
+            result["current_injury_expected_games_missed"],
+            errors="coerce",
+        ).fillna(0.0).clip(lower=0.0, upper=PROJECTED_GAMES)
+        if "current_injury_expected_games_missed" in result.columns
+        else pd.Series(0.0, index=result.index)
+    )
+    season_ending = (
+        result["current_injury_season_ending"].fillna(False).astype(bool)
+        if "current_injury_season_ending" in result.columns
+        else pd.Series(False, index=result.index)
+    )
 
     eligible = injured & (~stale | research_override)
-    penalty = (severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP).clip(
-        lower=0.0,
-        upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP,
-    )
-    result.loc[
-        eligible,
-        "current_injury_projection_penalty",
-    ] = penalty[eligible]
+    severity_penalty = (
+        severity * CURRENT_INJURY_PROJECTION_PENALTY_CAP
+    ).clip(lower=0.0, upper=CURRENT_INJURY_PROJECTION_PENALTY_CAP)
+    timeline_penalty = (
+        expected_games_missed / float(PROJECTED_GAMES)
+    ).clip(lower=0.0, upper=1.0)
+    timeline_penalty = timeline_penalty.mask(season_ending, 1.0)
+    result["current_injury_timeline_penalty"] = timeline_penalty
+
+    final_penalty = pd.concat(
+        [severity_penalty.where(eligible, 0.0), timeline_penalty],
+        axis=1,
+    ).max(axis=1)
+    result["current_injury_projection_penalty"] = final_penalty
     result["current_injury_projection_multiplier"] = (
         1.0 - result["current_injury_projection_penalty"]
     )
