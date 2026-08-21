@@ -94,12 +94,12 @@ def add_keeper_depletion_metadata(
     *,
     max_multiplier: float = 1.50,
 ) -> pd.DataFrame:
-    """Attach keeper-driven remaining-demand and depletion metadata.
+    """Attach unavailable-pool remaining-demand and depletion metadata.
 
-    This is positional supply math only. It never contains player-specific
-    boosts. A position with many keepers inside its replacement-level demand
-    receives a larger depletion multiplier because fewer starter-quality
-    options remain available to the live draft room.
+    ``keeper_counts`` is kept as the argument name for compatibility with the
+    initial keeper audit, but callers may pass all unavailable replacement-
+    level players (keepers plus live drafted players). The math is positional
+    only and never contains player-specific boosts.
     """
 
     result = df.copy()
@@ -117,6 +117,7 @@ def add_keeper_depletion_metadata(
     result["position_keeper_count"] = (
         position.map(normalized_counts).fillna(0).astype(int)
     )
+    result["position_unavailable_demand_count"] = result["position_keeper_count"]
 
     replacement = pd.to_numeric(
         result.get(
@@ -125,15 +126,15 @@ def add_keeper_depletion_metadata(
         ),
         errors="coerce",
     ).fillna(0.0).clip(lower=0.0)
-    keeper_count = pd.to_numeric(
+    unavailable_count = pd.to_numeric(
         result["position_keeper_count"],
         errors="coerce",
     ).fillna(0.0).clip(lower=0.0)
-    keeper_count = keeper_count.where(
+    unavailable_count = unavailable_count.where(
         replacement <= 0.0,
-        keeper_count.clip(upper=replacement),
+        unavailable_count.clip(upper=replacement),
     )
-    remaining = (replacement - keeper_count).clip(lower=0.0)
+    remaining = (replacement - unavailable_count).clip(lower=0.0)
     result["position_remaining_replacement_demand"] = remaining.astype(int)
 
     depletion = pd.Series(1.0, index=result.index, dtype=float)
@@ -146,7 +147,62 @@ def add_keeper_depletion_metadata(
         lower=1.0,
         upper=float(max_multiplier),
     )
+    result["available_pool_depletion_multiplier"] = result[
+        "keeper_depletion_multiplier"
+    ]
     return result
+
+
+def infer_unavailable_position_counts(df: pd.DataFrame) -> dict[str, int]:
+    """Infer missing replacement-level supply from original position ranks.
+
+    Rankings are created before keepers or manual draft picks are removed, so
+    their stable ``position_rank`` values let the live board measure exactly
+    how many replacement-level players have disappeared at each position.
+    """
+
+    positions = ("QB", "RB", "WR", "TE")
+    counts = {position: 0 for position in positions}
+    if (
+        df is None
+        or df.empty
+        or "position" not in df.columns
+        or "position_rank" not in df.columns
+        or "position_replacement_rank" not in df.columns
+    ):
+        return counts
+
+    normalized_position = (
+        df["position"].astype(str).str.strip().str.upper()
+    )
+    for position in positions:
+        position_rows = df.loc[normalized_position == position]
+        if position_rows.empty:
+            continue
+
+        replacement_values = pd.to_numeric(
+            position_rows["position_replacement_rank"],
+            errors="coerce",
+        ).dropna()
+        if replacement_values.empty:
+            continue
+        replacement_rank = max(0, int(replacement_values.max()))
+        if replacement_rank <= 0:
+            continue
+
+        available_ranks = pd.to_numeric(
+            position_rows["position_rank"],
+            errors="coerce",
+        ).dropna()
+        available_inside_demand = available_ranks[
+            available_ranks.between(1, replacement_rank)
+        ].astype(int).nunique()
+        counts[position] = max(
+            0,
+            replacement_rank - int(available_inside_demand),
+        )
+
+    return counts
 
 
 # ============================================================
