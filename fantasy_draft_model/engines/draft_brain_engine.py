@@ -152,6 +152,9 @@ def build_draft_brain_for_player(
 def add_draft_brain(df: pd.DataFrame, draft_context):
     """Add Draft Brain output using one wait cache and one live run cache per rerun."""
     df = df.copy()
+    if df.empty:
+        return df
+
     picks_until_raw = draft_context.get("picks_until_user", 1)
     picks_until_next = 1 if picks_until_raw is None else max(1, int(picks_until_raw))
 

@@ -127,3 +127,12 @@ def test_add_brain_handles_completed_draft_context():
     )
 
     assert result.iloc[0]["brain_score"] >= 0
+
+
+def test_add_brain_handles_completed_draft_with_no_players_remaining():
+    result = add_draft_brain(
+        pd.DataFrame(),
+        {"picks_until_user": None, "draft_complete": True},
+    )
+
+    assert result.empty
