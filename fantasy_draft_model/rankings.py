@@ -5,9 +5,11 @@ Version 1
 
 import pandas as pd
 
+from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.engines.projection_engine import (
     build_2026_projections,
 )
+from fantasy_draft_model.engines.vorp_engine import calculate_replacement_ranks
 from fantasy_draft_model.models.football_intelligence import (
     add_football_intelligence,
 )
@@ -305,6 +307,9 @@ def build_draft_rankings(league_key):
 
     df = build_2026_projections(league_key)
     df = df.loc[:, ~df.columns.duplicated()].copy()
+    league_settings = load_league_settings(league_key)
+    replacement_ranks = calculate_replacement_ranks(df, league_settings)
+    df = add_position_replacement_metadata(df, replacement_ranks)
     df = calculate_draft_score(df)
     df = create_overall_rankings(df)
     df = add_position_rank_label(df)
