@@ -400,7 +400,6 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
     raw_scarcity = (
         depth_factor * (0.60 * remaining_pressure + 0.40 * drop_pressure)
     ).clip(lower=0.0, upper=100.0)
-    df["raw_tier_scarcity_score"] = raw_scarcity.round(2)
 
     replacement_demand = pd.to_numeric(
         df.get(
@@ -409,6 +408,21 @@ def add_live_tier_scarcity(df: pd.DataFrame) -> pd.DataFrame:
         ),
         errors="coerce",
     ).fillna(0.0).clip(lower=0.0)
+
+    demand_enabled = supported_position & replacement_demand.gt(0.0)
+    if bool(demand_enabled.any()):
+        demand_ceiling = float(replacement_demand.loc[demand_enabled].max())
+        if demand_ceiling > 0.0:
+            demand_factor = pd.Series(1.0, index=df.index, dtype=float)
+            demand_factor.loc[demand_enabled] = (
+                replacement_demand.loc[demand_enabled] / demand_ceiling
+            ).pow(0.5).clip(lower=0.0, upper=1.0)
+            raw_scarcity = (
+                raw_scarcity * demand_factor
+            ).clip(lower=0.0, upper=100.0)
+
+    df["raw_tier_scarcity_score"] = raw_scarcity.round(2)
+
     remaining_demand = pd.to_numeric(
         df.get(
             "position_remaining_replacement_demand",
