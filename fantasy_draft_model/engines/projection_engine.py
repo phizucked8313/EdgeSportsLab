@@ -376,6 +376,7 @@ def build_2026_projections(league_key):
 
     df = add_rookie_projection_components(df)
     df = add_rookie_baseline_projection(df)
+    df = attach_historical_regression(df)
     df = add_per_game_metrics(df)
     df = add_rushing_usage_scores(df)
     df = add_qb_contact_exposure(df)
