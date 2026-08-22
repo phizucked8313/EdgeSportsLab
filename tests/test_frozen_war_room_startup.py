@@ -14,7 +14,7 @@ from fantasy_draft_model.ui.draft_war_room import filter_available_players
 
 
 EXPECTED_FROZEN_SHA256 = (
-    "e79f4ea672f5a08b81d3a89ac2ed1e8ac38f6b714127bf1df81b44d8e17d245b"
+    "1be7a6ce7e2f3b598b3e2419c837923b743796c4a68a5caf3cc5b334f64c5cf6"
 )
 
 

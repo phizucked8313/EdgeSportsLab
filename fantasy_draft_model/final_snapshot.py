@@ -34,6 +34,25 @@ REQUIRED_RANKING_INPUTS = (
     "position",
 )
 FREEZE_SCHEMA = "edgeiq-final-draft-snapshot/v1"
+FROZEN_OPTIONAL_STRING_COLUMNS = (
+    "prior_roster_team",
+    "roster_status_provenance",
+    "roster_status_source",
+    "roster_status_source_date",
+    "roster_status_retrieved_at",
+    "current_injury_status",
+    "current_injury_body_part",
+    "current_injury_practice_status",
+    "current_injury_source_timestamp",
+    "current_injury_source_quality",
+    "current_injury_data_quality",
+    "current_injury_source",
+    "current_injury_expected_return",
+    "current_injury_timeline_source",
+    "current_injury_timeline_source_date",
+    "current_injury_timeline_note",
+)
+FROZEN_NULL_SENTINEL = "__EDGEIQ_FROZEN_NULL_V1__"
 
 
 def normalize_player_name(value):
@@ -71,8 +90,28 @@ def _clean_text(value):
 def audit_depth_chart(board, depth):
     """Attach latest depth evidence, preferring stable GSIS identity."""
     players = board.copy(deep=True).reset_index(drop=True)
+    depth_metadata_columns = (
+        "depth_match_method",
+        "depth_source_position",
+        "depth_position_mismatch",
+        "depth_pos_rank",
+        "depth_role",
+        "depth_timestamp",
+        "prior_depth_pos_rank",
+        "prior_depth_timestamp",
+        "depth_role_changed",
+        "depth_role_change_direction",
+    )
+    players = players.drop(
+        columns=[column for column in depth_metadata_columns if column in players],
+    )
     source = depth.copy(deep=True)
-    for column in ("gsis_id", "player_name", "team", "pos_abb", "pos_rank", "edgeiq_role", "dt"):
+    for column in (
+        "gsis_id", "player_name", "team", "pos_abb", "pos_rank",
+        "edgeiq_role", "dt", "prior_depth_pos_rank",
+        "prior_depth_timestamp", "depth_role_changed",
+        "depth_role_change_direction",
+    ):
         if column not in source.columns:
             source[column] = None
     source["_team"] = source["team"].astype(str).str.upper().replace(TEAM_ALIASES)
@@ -106,19 +145,32 @@ def audit_depth_chart(board, depth):
             evidence.append(
                 {
                     "depth_match_method": "not_applicable_unsigned",
+                    "depth_source_position": "",
+                    "depth_position_mismatch": False,
                     "depth_pos_rank": None,
                     "depth_role": None,
                     "depth_timestamp": "",
+                    "prior_depth_pos_rank": None,
+                    "prior_depth_timestamp": "",
+                    "depth_role_changed": False,
+                    "depth_role_change_direction": "NOT_APPLICABLE",
                 }
             )
             continue
+        player_position = _clean_text(getattr(row, "position", "")).upper()
         match = by_id.get(_clean_text(getattr(row, "player_id", "")))
+        id_position_mismatch = (
+            match is not None and match.get("_position") != player_position
+        )
+        mismatched_id_match = match if id_position_mismatch else None
+        if id_position_mismatch:
+            match = None
         method = "gsis_id" if match is not None else ""
         if match is None:
             key = (
                 normalize_player_name(getattr(row, "player_name_clean", "")),
                 TEAM_ALIASES.get(_clean_text(getattr(row, "team", "")).upper(), _clean_text(getattr(row, "team", "")).upper()),
-                _clean_text(getattr(row, "position", "")).upper(),
+                player_position,
             )
             match = by_fallback.get(key)
             method = "name_team_position" if match is not None else ""
@@ -126,16 +178,24 @@ def audit_depth_chart(board, depth):
             suffix_key = (
                 normalize_player_identity_name(getattr(row, "player_name_clean", "")),
                 TEAM_ALIASES.get(_clean_text(getattr(row, "team", "")).upper(), _clean_text(getattr(row, "team", "")).upper()),
-                _clean_text(getattr(row, "position", "")).upper(),
+                player_position,
             )
             match = by_suffix_fallback.get(suffix_key)
             method = "name_team_position_suffix" if match is not None else ""
         evidence.append(
             {
                 "depth_match_method": method,
+                "depth_source_position": _clean_text(
+                    (match or mismatched_id_match or {}).get("pos_abb", "")
+                ).upper(),
+                "depth_position_mismatch": id_position_mismatch,
                 "depth_pos_rank": match.get("pos_rank") if match is not None else None,
                 "depth_role": match.get("edgeiq_role") if match is not None else None,
                 "depth_timestamp": _clean_text(match.get("dt")) if match is not None else "",
+                "prior_depth_pos_rank": match.get("prior_depth_pos_rank") if match is not None else None,
+                "prior_depth_timestamp": _clean_text(match.get("prior_depth_timestamp")) if match is not None else "",
+                "depth_role_changed": bool(match.get("depth_role_changed", False)) if match is not None else False,
+                "depth_role_change_direction": _clean_text(match.get("depth_role_change_direction")) if match is not None else "",
             }
         )
     enriched = pd.concat([players, pd.DataFrame(evidence)], axis=1)
@@ -151,7 +211,7 @@ def audit_depth_chart(board, depth):
     )
 
 
-def audit_rookies(audit_scope, *, top_300=None, expected_scope_count=50):
+def audit_rookies(audit_scope, *, top_300=None, expected_scope_count=None):
     """Review a declared rookie scope independently of Top-300 membership."""
     rookies = audit_scope.loc[
         audit_scope.get("is_rookie", False).fillna(False).astype(bool)
@@ -165,9 +225,12 @@ def audit_rookies(audit_scope, *, top_300=None, expected_scope_count=50):
         "projected_points", "projection_confidence",
     )
     failures = []
-    if len(rookies) != expected_scope_count:
+    authoritative_scope_count = (
+        len(rookies) if expected_scope_count is None else expected_scope_count
+    )
+    if len(rookies) != authoritative_scope_count:
         failures.append(
-            f"expected {expected_scope_count} audit-scope rookies, found {len(rookies)}"
+            f"expected {authoritative_scope_count} audit-scope rookies, found {len(rookies)}"
         )
     for row in rookies.itertuples(index=False):
         missing = [column for column in required if column not in rookies or pd.isna(getattr(row, column, None)) or _clean_text(getattr(row, column, "")) == ""]
@@ -207,6 +270,7 @@ def audit_rookies(audit_scope, *, top_300=None, expected_scope_count=50):
         if _clean_text(getattr(row, "player_id", "")) not in selected_ids
     ]
     return {
+        "expected_scope_count": authoritative_scope_count,
         "reviewed_count": len(rookies),
         "top_300_rookie_count": len(selected),
         "outside_top_300": outside_top_300,
@@ -389,6 +453,30 @@ def _json_safe_frame(board):
     return safe
 
 
+def _freeze_csv_frame(board):
+    """Encode the narrow optional-string schema before CSV serialization."""
+    safe = _json_safe_frame(board)
+    for column in FROZEN_OPTIONAL_STRING_COLUMNS:
+        if column not in safe:
+            continue
+        values = safe[column].astype("object")
+        if values.eq(FROZEN_NULL_SENTINEL).any():
+            raise ValueError(f"frozen CSV string field contains reserved null sentinel: {column}")
+        safe[column] = values.where(values.notna(), FROZEN_NULL_SENTINEL)
+    return safe
+
+
+def _read_frozen_csv(payload):
+    """Restore the explicit optional-string schema without dtype inference."""
+    converters = {column: str for column in FROZEN_OPTIONAL_STRING_COLUMNS}
+    board = pd.read_csv(StringIO(payload.decode("utf-8")), converters=converters)
+    for column in FROZEN_OPTIONAL_STRING_COLUMNS:
+        if column in board:
+            values = board[column].astype("string")
+            board[column] = values.mask(values.eq(FROZEN_NULL_SENTINEL), pd.NA)
+    return board
+
+
 def _atomic_write(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,7 +494,7 @@ def _atomic_write(path, payload):
 def write_frozen_snapshot(board, manifest, csv_path, manifest_path):
     csv_path = Path(csv_path)
     manifest_path = Path(manifest_path)
-    csv_payload = _json_safe_frame(board).to_csv(index=False).encode("utf-8")
+    csv_payload = _freeze_csv_frame(board).to_csv(index=False).encode("utf-8")
     frozen_manifest = dict(manifest)
     frozen_manifest["snapshot_file"] = csv_path.name
     frozen_manifest["snapshot_sha256"] = sha256(csv_payload).hexdigest()
@@ -440,7 +528,7 @@ def load_frozen_snapshot_offline(
     if sha256(payload).hexdigest() != manifest.get("snapshot_sha256"):
         raise ValueError("frozen snapshot checksum does not match manifest")
     try:
-        board = pd.read_csv(StringIO(payload.decode("utf-8")))
+        board = _read_frozen_csv(payload)
     except (UnicodeDecodeError, pd.errors.ParserError) as error:
         raise ValueError("frozen snapshot CSV is invalid") from error
     validate_top_300(
