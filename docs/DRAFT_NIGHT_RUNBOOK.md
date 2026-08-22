@@ -10,6 +10,10 @@ The verified skill-position baseline is the committed **frozen snapshot**. The p
 
 K/DEF are deterministic offline supplemental entries. They are draftable, searchable, filterable, persistent, and undoable, but they do not receive fake frozen ranks. Until verified component projections are committed, K/DEF league-adjusted Draft Brain value is intentionally withheld rather than fabricated.
 
+## Approved post-draft modeling follow-up
+
+This frozen 2026 board uses verified current depth-chart roles and conservative role-cohort workload translation for material veteran RB role transitions. It does **not** yet model reliable team-level vacated workload, expected snap share, route participation, coaching/play-caller or scheme changes, team pace, or projected play volume. It also lacks a validated historical pre-season depth/roster calibration set for converting current backfield competition into a numerical RB opportunity-share forecast. Those inputs remain a post-draft architecture and data-quality project; no speculative bonuses are applied to the frozen board.
+
 ## Artifact locations
 
 All paths are relative to the repository root.

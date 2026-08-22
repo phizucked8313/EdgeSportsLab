@@ -3,6 +3,7 @@ import pandas as pd
 
 from fantasy_draft_model.config import load_league_settings
 from fantasy_draft_model.models.player_profiles import build_player_profiles
+from fantasy_draft_model.models.projections import add_custom_fantasy_scoring
 from fantasy_draft_model.engines.edgescore_engine import calculate_edgescore
 from fantasy_draft_model.engines.vorp_engine import calculate_vorp
 from fantasy_draft_model.engines.rushing_usage_engine import (
@@ -34,6 +35,8 @@ from fantasy_draft_model.engines.talent_engine import (
     add_rookie_projection_components,
     add_rookie_baseline_projection,
 )
+from fantasy_draft_model.final_snapshot import audit_depth_chart
+from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
 
 
 # ============================================================
@@ -42,6 +45,17 @@ from fantasy_draft_model.engines.talent_engine import (
 
 PROJECTED_GAMES = 17
 CURRENT_INJURY_PROJECTION_PENALTY_CAP = 0.12
+VETERAN_ROLE_PRIOR_GAMES = 17.0
+
+TEAM_ALIASES = {
+    "ARZ": "ARI",
+    "AZ": "ARI",
+    "JAC": "JAX",
+    "LA": "LAR",
+    "OAK": "LV",
+    "SD": "LAC",
+    "STL": "LAR",
+}
 
 MANUAL_PLAYER_ADJUSTMENTS = {
     # "Player Name": 1.05,
@@ -50,6 +64,41 @@ MANUAL_PLAYER_ADJUSTMENTS = {
 TARGET_REGRESSION = {
     # "Ja'Marr Chase": 1.05,
 }
+
+
+def attach_current_depth_roles(df, *, depth=None):
+    """Attach canonical current depth evidence before projections are built."""
+    current_depth = load_depth_charts() if depth is None else depth
+    _, enriched = audit_depth_chart(df, current_depth)
+    return enriched
+
+
+def exclude_verified_fullbacks_from_fantasy_pool(df):
+    """Exclude players whose verified current depth position is fullback.
+
+    The roster source may label a fullback as RB or TE, but EdgeIQ's
+    draftable positions intentionally exclude FB. A verified FB designation
+    is authoritative only for that incompatibility; KR/PR and other
+    special-teams labels do not affect eligibility.
+    """
+    result = df.copy()
+    if "is_fantasy_draftable" not in result.columns:
+        return result
+    source_position = result.get(
+        "depth_source_position", pd.Series("", index=result.index)
+    ).fillna("").astype(str).str.strip().str.upper()
+    match_method = result.get(
+        "depth_match_method", pd.Series("", index=result.index)
+    ).fillna("").astype(str).str.strip()
+    position_mismatch = result.get(
+        "depth_position_mismatch", pd.Series(False, index=result.index)
+    ).fillna(False).astype(bool)
+    verified_fullback = source_position.eq("FB") & (
+        match_method.ne("") | position_mismatch
+    )
+    result["verified_fullback_excluded"] = verified_fullback
+    result.loc[verified_fullback, "is_fantasy_draftable"] = False
+    return result
 
 
 def percentile_score(df, column, position):
@@ -156,6 +205,364 @@ def add_manual_adjustments(df):
     return df
 
 
+def _normalized_team(series):
+    values = series.fillna("").astype(str).str.strip().str.upper()
+    return values.replace(TEAM_ALIASES)
+
+
+def add_veteran_transition_baseline(df):
+    """Regress verified team changers toward stable current-role peers.
+
+    Prior production remains the player-specific signal. The current-role
+    median supplies an empirical prior only when historical and current team
+    evidence establishes a real transition and the depth match is verified.
+    """
+    result = df.copy()
+    result["is_team_transition"] = False
+    result["is_same_team_role_change"] = False
+    result["transition_role_adjustment_applied"] = False
+    result["role_baseline_ppg"] = np.nan
+    historical_ppg = (
+        result["custom_points_per_game"]
+        if "custom_points_per_game" in result.columns
+        else pd.Series(0.0, index=result.index)
+    )
+    result["transition_baseline_ppg"] = pd.to_numeric(
+        historical_ppg,
+        errors="coerce",
+    ).fillna(0.0)
+    result["transition_baseline_multiplier"] = 1.0
+
+    required = {
+        "position",
+        "team",
+        "prior_roster_team",
+        "is_rookie",
+        "games_played",
+        "custom_points_per_game",
+        "depth_role",
+        "depth_match_method",
+    }
+    if not required.issubset(result.columns):
+        return result
+
+    current_team = _normalized_team(result["team"])
+    prior_team = _normalized_team(result["prior_roster_team"])
+    rookie = result["is_rookie"].fillna(False).astype(bool)
+    games = pd.to_numeric(result["games_played"], errors="coerce").fillna(0.0)
+    ppg = pd.to_numeric(
+        result["custom_points_per_game"],
+        errors="coerce",
+    ).fillna(0.0)
+    verified_depth = result["depth_match_method"].fillna("").astype(str).str.strip().ne("")
+    valid_team_evidence = current_team.ne("") & prior_team.ne("")
+    transition = valid_team_evidence & current_team.ne(prior_team)
+    same_team_role_change = (
+        result.get("depth_role_changed", pd.Series(False, index=result.index))
+        .fillna(False)
+        .astype(bool)
+        & valid_team_evidence
+        & current_team.eq(prior_team)
+    )
+    stable_reference = (
+        ~rookie
+        & verified_depth
+        & valid_team_evidence
+        & ~transition
+        & ~same_team_role_change
+        & games.gt(0)
+    )
+
+    role_medians = (
+        result.loc[stable_reference]
+        .assign(_ppg=ppg.loc[stable_reference])
+        .groupby(["position", "depth_role"])["_ppg"]
+        .median()
+    )
+    role_keys = pd.MultiIndex.from_arrays(
+        [result["position"], result["depth_role"]],
+    )
+    result["role_baseline_ppg"] = role_medians.reindex(role_keys).to_numpy()
+
+    eligible_role_evidence = (
+        ~rookie
+        & verified_depth
+        & (transition | same_team_role_change)
+        & games.gt(0)
+        & result["role_baseline_ppg"].notna()
+    )
+    starter_role = result["depth_role"].eq("STARTER")
+    transition_direction_supported = (
+        (starter_role & result["role_baseline_ppg"].gt(ppg))
+        | (~starter_role & result["role_baseline_ppg"].lt(ppg))
+    )
+    role_change_direction = result.get(
+        "depth_role_change_direction",
+        pd.Series("", index=result.index),
+    ).fillna("").astype(str).str.upper()
+    same_team_direction_supported = (
+        (role_change_direction.eq("PROMOTED") & result["role_baseline_ppg"].gt(ppg))
+        | (role_change_direction.eq("DEMOTED") & result["role_baseline_ppg"].lt(ppg))
+    )
+    direction_supported = (
+        (transition & transition_direction_supported)
+        | (same_team_role_change & same_team_direction_supported)
+    )
+    eligible = eligible_role_evidence & direction_supported
+    history_weight = games / (games + VETERAN_ROLE_PRIOR_GAMES)
+    transition_ppg = (
+        ppg * history_weight
+        + result["role_baseline_ppg"] * (1.0 - history_weight)
+    )
+    result.loc[eligible_role_evidence & transition, "is_team_transition"] = True
+    result.loc[eligible_role_evidence & same_team_role_change, "is_same_team_role_change"] = True
+    result.loc[eligible, "transition_role_adjustment_applied"] = True
+    result.loc[eligible, "transition_baseline_ppg"] = transition_ppg.loc[eligible]
+    nonzero = eligible & ppg.gt(0)
+    result.loc[nonzero, "transition_baseline_multiplier"] = (
+        result.loc[nonzero, "transition_baseline_ppg"] / ppg.loc[nonzero]
+    )
+    return result
+
+
+def add_veteran_rb_workload_projection(df, league_settings):
+    """Translate verified veteran RB role changes into explicit workload.
+
+    Workload comes from a conservative blend of the player's demonstrated
+    rates and stable veterans currently occupying the same verified role.
+    Stable players are reference observations only and are never adjusted.
+    """
+
+    result = df.copy()
+    projected_columns = [
+        "projected_games", "projected_carries_per_game",
+        "projected_targets_per_game", "projected_carries",
+        "projected_targets", "projected_receptions",
+        "projected_rushing_yards", "projected_receiving_yards",
+        "projected_rushing_tds", "projected_receiving_tds",
+        "projected_touches_per_game", "projected_workload_fantasy_points",
+        "projected_workload_scoring_check", "rb_role_cohort_size",
+        "rb_role_carries_pg_median", "rb_role_carries_pg_p25",
+        "rb_role_carries_pg_p75", "rb_role_targets_pg_median",
+        "rb_role_targets_pg_p25", "rb_role_targets_pg_p75",
+        "rb_role_touches_pg_median", "rb_role_touches_pg_p25",
+        "rb_role_touches_pg_p75",
+    ]
+    result["rb_workload_translation_applied"] = False
+    for column in projected_columns:
+        result[column] = np.nan
+
+    required = {
+        "position", "team", "prior_roster_team", "is_rookie",
+        "games_played", "depth_role", "depth_match_method", "carries",
+        "targets", "receptions", "rushing_yards", "receiving_yards",
+        "rushing_tds", "receiving_tds",
+        "transition_role_adjustment_applied",
+    }
+    if not required.issubset(result.columns):
+        return result
+
+    games = pd.to_numeric(result["games_played"], errors="coerce").fillna(0.0)
+    current_team = _normalized_team(result["team"])
+    prior_team = _normalized_team(result["prior_roster_team"])
+    verified = result["depth_match_method"].fillna("").astype(str).str.strip().ne("")
+    rookie = result["is_rookie"].fillna(False).astype(bool)
+    transitioned = current_team.ne(prior_team) | result.get(
+        "is_same_team_role_change", pd.Series(False, index=result.index)
+    ).fillna(False).astype(bool)
+    eligible = (
+        result["position"].eq("RB") & ~rookie & verified & games.gt(0)
+        & transitioned
+        & result["transition_role_adjustment_applied"].fillna(False).astype(bool)
+    )
+
+    stable = (
+        result["position"].eq("RB") & ~rookie & verified & games.gt(0)
+        & current_team.eq(prior_team)
+        & ~result.get("is_same_team_role_change", pd.Series(False, index=result.index))
+        .fillna(False).astype(bool)
+    )
+
+    numeric = lambda column: pd.to_numeric(
+        result.get(column, pd.Series(0.0, index=result.index)), errors="coerce"
+    ).fillna(0.0)
+    carries = numeric("carries")
+    targets = numeric("targets")
+    receptions = numeric("receptions")
+    rush_yards = numeric("rushing_yards")
+    rec_yards = numeric("receiving_yards")
+    rush_tds = numeric("rushing_tds")
+    rec_tds = numeric("receiving_tds")
+
+    rate_frame = pd.DataFrame(index=result.index)
+    rate_frame["carries_pg"] = carries / games.replace(0.0, np.nan)
+    rate_frame["targets_pg"] = targets / games.replace(0.0, np.nan)
+    rate_frame["touches_pg"] = (carries + receptions) / games.replace(0.0, np.nan)
+    rate_frame["catch_rate"] = receptions / targets.replace(0.0, np.nan)
+    rate_frame["yards_per_carry"] = rush_yards / carries.replace(0.0, np.nan)
+    rate_frame["yards_per_reception"] = rec_yards / receptions.replace(0.0, np.nan)
+    rate_frame["rush_td_rate"] = rush_tds / carries.replace(0.0, np.nan)
+    rate_frame["rec_td_rate"] = rec_tds / targets.replace(0.0, np.nan)
+
+    event_columns = [
+        "fumbles_lost", "two_point_conversions", "return_tds",
+        "offensive_fumble_return_tds", "games_100_rush",
+        "games_200_rush", "games_300_rush", "games_100_receive",
+        "games_200_receive", "games_300_receive", "plays_40_rush",
+        "plays_40_rush_td", "plays_40_reception",
+        "plays_40_reception_td",
+    ]
+    for column in event_columns:
+        rate_frame[f"{column}_pg"] = numeric(column) / games.replace(0.0, np.nan)
+
+    def blended_rate(index, cohort, column, lower_q=0.25, upper_q=0.75):
+        values = rate_frame.loc[cohort, column].replace([np.inf, -np.inf], np.nan).dropna()
+        if values.empty:
+            return np.nan
+        prior = float(values.median())
+        player = rate_frame.at[index, column]
+        if not np.isfinite(player):
+            player = prior
+        history_weight = float(games.at[index] / (games.at[index] + VETERAN_ROLE_PRIOR_GAMES))
+        blended = float(player) * history_weight + prior * (1.0 - history_weight)
+        return float(np.clip(blended, values.quantile(lower_q), values.quantile(upper_q)))
+
+    for index in result.index[eligible]:
+        role = result.at[index, "depth_role"]
+        cohort = stable & result["depth_role"].eq(role)
+        cohort_size = int(cohort.sum())
+        if cohort_size < 4:
+            continue
+
+        projected_games = float(PROJECTED_GAMES)
+        carries_pg = blended_rate(index, cohort, "carries_pg")
+        targets_pg = blended_rate(index, cohort, "targets_pg")
+        catch_rate = blended_rate(index, cohort, "catch_rate", 0.10, 0.90)
+        ypc = blended_rate(index, cohort, "yards_per_carry", 0.10, 0.90)
+        ypr = blended_rate(index, cohort, "yards_per_reception", 0.10, 0.90)
+        rush_td_rate = blended_rate(index, cohort, "rush_td_rate", 0.10, 0.90)
+        rec_td_rate = blended_rate(index, cohort, "rec_td_rate", 0.10, 0.90)
+        rates = [carries_pg, targets_pg, catch_rate, ypc, ypr, rush_td_rate, rec_td_rate]
+        if not all(np.isfinite(value) for value in rates):
+            continue
+
+        projected_carries = carries_pg * projected_games
+        projected_targets = targets_pg * projected_games
+        projected_receptions = projected_targets * catch_rate
+        projected_stats = pd.DataFrame([{
+            "games_played": projected_games,
+            "carries": projected_carries,
+            "targets": projected_targets,
+            "receptions": projected_receptions,
+            "rushing_yards": projected_carries * ypc,
+            "receiving_yards": projected_receptions * ypr,
+            "rushing_tds": projected_carries * rush_td_rate,
+            "receiving_tds": projected_targets * rec_td_rate,
+        }])
+        for column in event_columns:
+            projected_stats[column] = blended_rate(
+                index, cohort, f"{column}_pg", 0.10, 0.90
+            ) * projected_games
+        scored = add_custom_fantasy_scoring(projected_stats, league_settings)
+        workload_points = float(scored.at[0, "custom_fantasy_points"])
+
+        cohort_carries = rate_frame.loc[cohort, "carries_pg"].dropna()
+        cohort_targets = rate_frame.loc[cohort, "targets_pg"].dropna()
+        cohort_touches = rate_frame.loc[cohort, "touches_pg"].dropna()
+        values = {
+            "projected_games": projected_games,
+            "projected_carries_per_game": carries_pg,
+            "projected_targets_per_game": targets_pg,
+            "projected_carries": projected_carries,
+            "projected_targets": projected_targets,
+            "projected_receptions": projected_receptions,
+            "projected_rushing_yards": float(projected_stats.at[0, "rushing_yards"]),
+            "projected_receiving_yards": float(projected_stats.at[0, "receiving_yards"]),
+            "projected_rushing_tds": float(projected_stats.at[0, "rushing_tds"]),
+            "projected_receiving_tds": float(projected_stats.at[0, "receiving_tds"]),
+            "projected_touches_per_game": carries_pg + projected_receptions / projected_games,
+            "projected_workload_fantasy_points": workload_points,
+            "projected_workload_scoring_check": workload_points,
+            "rb_role_cohort_size": cohort_size,
+            "rb_role_carries_pg_median": float(cohort_carries.median()),
+            "rb_role_carries_pg_p25": float(cohort_carries.quantile(0.25)),
+            "rb_role_carries_pg_p75": float(cohort_carries.quantile(0.75)),
+            "rb_role_targets_pg_median": float(cohort_targets.median()),
+            "rb_role_targets_pg_p25": float(cohort_targets.quantile(0.25)),
+            "rb_role_targets_pg_p75": float(cohort_targets.quantile(0.75)),
+            "rb_role_touches_pg_median": float(cohort_touches.median()),
+            "rb_role_touches_pg_p25": float(cohort_touches.quantile(0.25)),
+            "rb_role_touches_pg_p75": float(cohort_touches.quantile(0.75)),
+        }
+        result.at[index, "rb_workload_translation_applied"] = True
+        for column, value in values.items():
+            result.at[index, column] = value
+
+    return result
+
+
+def add_role_workload_consistency(df):
+    """Apply verified-depth workload ceilings without creating opportunity.
+
+    Historical rates remain the player signal.  This only prevents a verified
+    lower-depth role from retaining a workload far above comparable current
+    roles; starters and unverified depth records are deliberately untouched.
+    """
+    result = df.copy()
+    result["role_workload_multiplier"] = 1.0
+    result["role_workload_cap"] = np.nan
+    required = {"position", "depth_role", "depth_match_method", "projected_points"}
+    if not required.issubset(result.columns):
+        return result
+    verified = result["depth_match_method"].fillna("").astype(str).str.strip().ne("")
+    roles = result["depth_role"].fillna("").astype(str).str.upper()
+    games = pd.to_numeric(result.get("games_played", pd.Series(1.0, index=result.index)), errors="coerce").replace(0, np.nan)
+    carries_pg = pd.to_numeric(result.get("carries_per_game", pd.Series(0.0, index=result.index)), errors="coerce").fillna(0)
+    targets_pg = pd.to_numeric(result.get("targets_per_game", pd.Series(0.0, index=result.index)), errors="coerce").fillna(0)
+    workload = targets_pg.copy()
+    rb = result["position"].eq("RB")
+    workload.loc[rb] = carries_pg.loc[rb] + targets_pg.loc[rb]
+    result["role_workload_metric"] = workload
+    rookie = result.get(
+        "is_rookie", pd.Series(False, index=result.index)
+    ).fillna(False).astype(bool)
+    current_rank = pd.to_numeric(
+        result.get("depth_pos_rank", pd.Series(np.nan, index=result.index)),
+        errors="coerce",
+    )
+    prior_rank = pd.to_numeric(
+        result.get("prior_depth_pos_rank", pd.Series(np.nan, index=result.index)),
+        errors="coerce",
+    )
+    direction = result.get(
+        "depth_role_change_direction", pd.Series("", index=result.index)
+    ).fillna("").astype(str).str.upper()
+    demoted = direction.eq("DEMOTED") & current_rank.gt(prior_rank)
+    for position in ("RB", "WR", "TE"):
+        for role in ("BACKUP", "DEPTH", "DEEP_DEPTH"):
+            peer = verified & result["position"].eq(position) & roles.eq(role) & games.notna()
+            values = workload.loc[peer]
+            if len(values) < 2:
+                continue
+            cap = float(values.quantile(0.90))
+            affected = (
+                verified
+                & ~rookie
+                & games.notna()
+                & demoted
+                & result["position"].eq(position)
+                & roles.eq(role)
+                & workload.gt(cap)
+            )
+            result.loc[affected, "role_workload_cap"] = cap
+            result.loc[affected, "role_workload_multiplier"] = cap / workload.loc[affected]
+    result["projected_points"] = (
+        pd.to_numeric(result["projected_points"], errors="coerce").fillna(0)
+        * result["role_workload_multiplier"]
+    )
+    return result
+
+
 def neutralize_positive_ripple_for_current_injuries(df):
     """Prevent currently injured players from benefiting from positive team ripple."""
     result = df.copy()
@@ -258,7 +665,9 @@ def calculate_projection(df):
     df = df.copy()
 
     df["baseline_projection"] = (
-        df["custom_points_per_game"] * PROJECTED_GAMES
+        df["custom_points_per_game"]
+        * PROJECTED_GAMES
+        * df.get("transition_baseline_multiplier", 1.0)
     )
 
     if (
@@ -295,6 +704,20 @@ def calculate_projection(df):
         * df["injury_multiplier"]
         * df["manual_adjustment"]
     )
+
+    workload_mask = df.get(
+        "rb_workload_translation_applied",
+        pd.Series(False, index=df.index),
+    ).fillna(False).astype(bool)
+    if workload_mask.any():
+        df.loc[workload_mask, "baseline_projection"] = df.loc[
+            workload_mask, "projected_workload_fantasy_points"
+        ]
+        df.loc[workload_mask, "projected_points"] = (
+            df.loc[workload_mask, "projected_workload_fantasy_points"]
+            * df.loc[workload_mask, "injury_multiplier"]
+            * df.loc[workload_mask, "manual_adjustment"]
+        )
 
     return df
 
@@ -337,6 +760,9 @@ def build_2026_projections(league_key):
     league_settings = load_league_settings(league_key)
     df = build_player_profiles(league_key)
 
+    df = attach_current_depth_roles(df)
+    df = exclude_verified_fullbacks_from_fantasy_pool(df)
+
     if "is_fantasy_draftable" in df.columns:
         df = df[
             df["is_fantasy_draftable"] == True
@@ -352,9 +778,12 @@ def build_2026_projections(league_key):
         injury_risk_label
     )
     df = calculate_opportunity_score(df)
+    df = add_veteran_transition_baseline(df)
+    df = add_veteran_rb_workload_projection(df, league_settings)
     df = add_target_regression(df)
     df = add_manual_adjustments(df)
     df = calculate_projection(df)
+    df = add_role_workload_consistency(df)
 
     current_injuries = load_normalized_current_injuries()
     df = attach_current_injury_state(df, current_injuries)
