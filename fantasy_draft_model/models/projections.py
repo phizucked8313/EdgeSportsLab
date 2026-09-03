@@ -270,7 +270,14 @@ def merge_current_roster_identity(historical_df, roster_df):
             roster_df["is_unsigned_free_agent"].fillna(False).astype(bool) | unsigned
         )
     if "prior_roster_team" not in roster_df:
-        roster_df["prior_roster_team"] = roster_df.get("current_team")
+        roster_df["prior_roster_team"] = ""
+    prior_team = _series_or_default(roster_df, "prior_roster_team", "")
+    missing_prior_team = prior_team.isna() | prior_team.astype(str).str.strip().eq("")
+    released_without_prior = roster_df["is_unsigned_free_agent"] & missing_prior_team
+    roster_df.loc[released_without_prior, "prior_roster_team"] = roster_df.loc[
+        released_without_prior,
+        "current_team",
+    ]
     if "roster_status_provenance" not in roster_df:
         roster_df["roster_status_provenance"] = roster_status
     roster_df.loc[roster_df["is_unsigned_free_agent"], "current_team"] = pd.NA
@@ -290,6 +297,16 @@ def merge_current_roster_identity(historical_df, roster_df):
     merged_df["player_name_clean"] = (
         merged_df["roster_player_name"]
         .fillna(merged_df["player_name_clean"])
+    )
+
+    historical_team = merged_df["team"].copy()
+    prior_team = _series_or_default(merged_df, "prior_roster_team", "")
+    missing_prior_team = (
+        prior_team.isna()
+        | prior_team.astype(str).str.strip().eq("")
+    )
+    merged_df.loc[missing_prior_team, "prior_roster_team"] = (
+        historical_team.loc[missing_prior_team]
     )
 
     merged_df["team"] = (

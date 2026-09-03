@@ -1,0 +1,177 @@
+name: Temporary RC Ranking Verification
+
+on:
+  push:
+    branches:
+      - draft-night-ranking-rc
+  pull_request:
+    branches:
+      - live-war-room-core
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify keeper-aware scarcity
+        run: python -m pytest tests/test_keeper_aware_available_pool_scarcity.py -q
+      - name: Run full test suite
+        run: python -m pytest -q
+      - name: Audit live keeper-filtered opening board
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          from fantasy_draft_model.rankings import build_draft_rankings
+          from fantasy_draft_model.keepers import load_keepers
+          from fantasy_draft_model.ui.draft_war_room import filter_available_players
+          from fantasy_draft_model.draft_assistant import build_draft_assistant_from_rankings
+          from fantasy_draft_model.integrations.depth_chart_loader import load_depth_charts
+
+          base = build_draft_rankings("drunk_sundays")
+          keepers = load_keepers("Drunk Sundays")
+          keeper_names = keepers["player_name"].dropna().astype(str).tolist()
+          state = {
+              "manual_picks": [],
+              "keeper_reservations": [
+                  {"player_name": name} for name in keeper_names
+              ],
+          }
+          available = filter_available_players(base, state)
+          removed = len(base) - len(available)
+          assert removed == len(keeper_names), (
+              f"Expected {len(keeper_names)} keepers removed, got {removed}"
+          )
+
+          board = build_draft_assistant_from_rankings(
+              available,
+              draft_context={"picks_until_user": 8, "drafted_picks": []},
+          )
+          position_counts = (
+              board.groupby("position")["position_unavailable_demand_count"]
+              .max()
+              .fillna(0)
+              .astype(int)
+              .to_dict()
+          )
+          expected = {"QB": 0, "RB": 12, "WR": 2, "TE": 1}
+          observed = {position: int(position_counts.get(position, 0)) for position in expected}
+          print("KEEPER_DEPLETION", observed)
+          assert observed == expected, f"Expected {expected}, got {observed}"
+
+          columns = [
+              "player_name_clean",
+              "position",
+              "position_rank",
+              "draft_rank",
+              "projected_points",
+              "vorp",
+              "tier_scarcity_score",
+              "position_replacement_rank",
+              "position_remaining_replacement_demand",
+              "position_unavailable_demand_count",
+              "brain_score",
+              "brain_recommendation",
+          ]
+          print("\nOPENING TOP 30")
+          print(board[columns].head(30).round(2).to_string(index=False))
+          print("\nTOP 12 POSITION MIX", board.head(12)["position"].value_counts().to_dict())
+          print("TOP 24 POSITION MIX", board.head(24)["position"].value_counts().to_dict())
+
+          names = [
+              "Kenneth Walker III",
+              "Breece Hall",
+              "Derrick Henry",
+              "Chase Brown",
+              "Saquon Barkley",
+              "Josh Jacobs",
+              "Bucky Irving",
+              "Ja'Marr Chase",
+              "Amon-Ra St. Brown",
+              "CeeDee Lamb",
+              "Trey McBride",
+              "Josh Allen",
+          ]
+          audit = board[board["player_name_clean"].isin(names)][columns]
+          print("\nAUDIT COHORT")
+          print(audit.round(2).to_string(index=False))
+
+          depth = load_depth_charts()
+          depth_names = depth[depth["player_name"].isin(names)].copy()
+          depth_columns = [
+              column for column in [
+                  "gsis_id", "player_name", "team", "pos_abb", "pos_rank", "edgeiq_role", "dt"
+              ] if column in depth_names.columns
+          ]
+          print("\nCURRENT DEPTH ROLES")
+          print(depth_names[depth_columns].sort_values(["team", "pos_abb", "pos_rank"]).to_string(index=False))
+
+          diagnostic_columns = [
+              column for column in [
+                  "player_id",
+                  "player_name_clean",
+                  "position",
+                  "team",
+                  "prior_roster_team",
+                  "games_played",
+                  "custom_points_per_game",
+                  "carries_per_game",
+                  "targets_per_game",
+                  "opportunity_score",
+                  "baseline_projection",
+                  "opportunity_multiplier",
+                  "projected_points",
+              ] if column in base.columns
+          ]
+          diagnostic = base[base["player_name_clean"].isin(names)][diagnostic_columns]
+          print("\nVETERAN PROJECTION INPUTS")
+          print(diagnostic.round(2).to_string(index=False))
+
+          rb_depth = depth[
+              (depth["pos_abb"] == "RB")
+              & (pd.to_numeric(depth["pos_rank"], errors="coerce") == 1)
+          ][["gsis_id", "team", "pos_rank", "edgeiq_role"]].copy()
+          rb1 = base.merge(
+              rb_depth,
+              left_on="player_id",
+              right_on="gsis_id",
+              how="inner",
+              suffixes=("", "_depth"),
+          )
+          rb1 = rb1[(rb1["position"] == "RB") & (rb1["games_played"] > 0)].copy()
+          rb1["touches_per_game"] = (
+              pd.to_numeric(rb1.get("carries", 0), errors="coerce").fillna(0)
+              + pd.to_numeric(rb1.get("receptions", 0), errors="coerce").fillna(0)
+          ) / pd.to_numeric(rb1["games_played"], errors="coerce").replace(0, pd.NA)
+          prior = rb1["prior_roster_team"].fillna("").astype(str).str.strip().str.upper()
+          current = rb1["team"].fillna("").astype(str).str.strip().str.upper()
+          rb1["changed_team"] = prior.ne("") & current.ne("") & prior.ne(current)
+
+          metrics = [
+              "custom_points_per_game",
+              "carries_per_game",
+              "targets_per_game",
+              "touches_per_game",
+              "opportunity_score",
+          ]
+          print("\nCURRENT RB1 HISTORICAL-WORKLOAD QUANTILES")
+          print(rb1[metrics].quantile([0.25, 0.5, 0.75]).round(2).to_string())
+          print("\nCURRENT RB1 TEAM CHANGES")
+          changed_columns = [
+              "player_name_clean", "prior_roster_team", "team",
+              "custom_points_per_game", "carries_per_game", "targets_per_game",
+              "touches_per_game", "opportunity_score", "projected_points",
+          ]
+          print(
+              rb1.loc[rb1["changed_team"], changed_columns]
+              .sort_values("projected_points", ascending=False)
+              .round(2)
+              .to_string(index=False)
+          )
+          PY
